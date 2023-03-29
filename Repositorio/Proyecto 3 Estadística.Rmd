@@ -1,0 +1,127 @@
+---
+title: "Proyecto 3 estadística"
+author: "Nuria"
+date: "2023-03-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+```{r librerias,echo=TRUE,error=FALSE,warning=FALSE,message=FALSE}
+# librerias estándar para tratamiento de datos
+library(tidyverse)
+#library(tidymodels)
+library(stringr)
+library(forcats)
+library(lubridate)
+library(magrittr)
+library(broom)
+library(pubh)
+library(lmtest)
+library(MASS)
+library(kableExtra)
+library(mosaic)
+library(moonBook)
+library(sjlabelled)
+library(sjPlot)
+library(reshape2)
+library(olsrr)
+library(ggfortify)
+library(mgcv)
+library(modelr)
+library(alr4)
+```
+
+```{r}
+loc01<-read.csv("https://raw.githubusercontent.com/jmsocuellamos/DatosBIOTEC/master/CaseStudies/Beijing/PRSA_Data_Aotizhongxin_20130301-20170228.csv",header=TRUE)
+```
+
+```{r, warning=FALSE}
+datos <- loc01[,c ("SO2","TEMP", "PRES","DEWP", "RAIN", "WSPM")]
+head(datos)
+
+datacomp = melt(datos, id.vars = 'SO2')
+ggplot(datacomp) +
+geom_jitter(aes(value, SO2, colour = variable)) +
+facet_wrap(~variable, scales = "free_x") +
+labs(x = "", y = "SO2")
+```
+
+no se aprecian tendencias lineales ni mucho menos
+
+## hacemos un modelo, primero el lineal es el más sencillo
+SO2 ~ TEMP + PRES + DEWN + RAIN + WSPM
+De primeras lo que podemos hacer son transformaciones, las 3 primeras tienen un poco de forma de parabola por lo que podemos probar a elevar al cuadrado, y las ultimas dos podemos probar a hacer logaritmos.
+
+En cuanto a la lluvia, como hay valores pegados a 0, pomemos separarlas en 2 gráficas, una de ellas con los valores pegados a 0 y la otra con valores que no sean 0.
+
+Estimación e innferencias 
+
+Sistema de ecuaciones normales, que es hacer la dervida de las matrices y acabamos teniendo 
+
+    X'Xbeta = X'Y
+  
+
+```{r, warning=FALSE}
+#Estimación e inferencias 
+
+
+```
+
+
+```{r, warning=FALSE}
+datos2 <- loc01[,c ("SO2", "PM2.5","PM10", "NO2","CO", "O3")]
+head(datos)
+
+datacomp = melt(datos, id.vars = 'SO2')
+ggplot(datacomp) +
+geom_jitter(aes(value, SO2, colour = variable)) +
+facet_wrap(~variable, scales = "free_x") +
+labs(x = "", y = "SO2")
+```
+##Estandarización de los valores para igualar escala 13/03/23
+
+```{r,warning=FALSE, fig.width=14, fig,height=6}
+
+#Modelo sin estandarizar 
+fit <- lm(SO2 ~ TEMP + PRES + DEWP + RAIN + WSPM, data = loc01,show.r2=FALSE)
+            
+          
+#Estimación 
+tab_model(fit)
+print(fit)
+```
+
+
+Vemos que los valores no concuerdan con lo visto anteriormente, ya que efectivamente la lluvia nos da un valor negativo, es decir q a ↑ lluvia ↓SO", pero esta relación nos sale también con el resto de variables les cuales habíamos visto antes que eran directamente proporcionales a la predicción 
+
+
+## Ejemplo1. Datos del bosque
+
+```{r,warning=FALSE}
+dbh <- c(10.2, 13.72, 15.43, 14.37, 15, 15.02, 15.12, 15.24, 15.24, 15.28, 13.78, 
+     15.67, 15.67, 15.98, 16.5, 16.87, 17.26, 17.28, 17.87, 19.13)
+d16 <- c(9.3, 12.1, 13.3, 13.4, 14.2, 12.8, 14, 13.5, 14, 13.8, 13.6, 14, 
+     13.7, 13.9, 14.9, 14.9, 14.3, 14.3, 16.9, 17.3)
+ht <- c(89, 90.07, 95.08, 98.03, 99, 91.05, 105.6, 100.8, 94, 93.09, 89, 102, 
+    99, 89.02, 95.09, 95.02, 91.02, 98.06, 96.01, 101)
+vol <- c(25.93, 45.87, 56.2, 58.6, 63.36, 46.35, 68.99, 62.91, 58.13, 59.79, 
+     56.2, 66.16, 62.18, 57.01, 65.62, 65.03, 66.74, 73.38, 82.87, 95.71)
+bosque <- data.frame(vol, dbh, d16, ht)
+```
+
+```{r,warning=FALSE}
+fit.bosque <- lm(vol ~ d16 + ht + I(ht^2), data = bosque,show.r2=FALSE)
+
+tab_model(fit.bosque)
+print(fit.bosque)
+```
+
+El siguiente paso es construir un proceso para descubrir cual de los modelos pensados es el mejor, log, cuadrático, exp...
+
+Estandarizar es importante porque las escalas a veces nos lleva a errores de mal interpretar el efecto de las variables sobre la predictora 
+
+

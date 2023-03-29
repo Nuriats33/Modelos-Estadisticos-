@@ -1,0 +1,90 @@
+---
+title: "Proyecto 2 Estadística"
+author: "Nuria"
+date: "2023-03-06"
+output: html_document
+---
+
+```{r librerias,echo=TRUE,error=FALSE,warning=FALSE,message=FALSE}
+# librerias estándar para tratamiento de datos
+library(tidyverse)
+#library(tidymodels)
+library(stringr)
+library(forcats)
+library(lubridate)
+library(magrittr)
+library(broom)
+library(pubh)
+library(lmtest)
+library(MASS)
+library(kableExtra)
+library(mosaic)
+library(moonBook)
+library(sjlabelled)
+library(sjPlot)
+library(reshape2)
+library(olsrr)
+library(ggfortify)
+library(mgcv)
+library(modelr)
+library(alr4)
+```
+
+```{r}
+# Configuración entorno gráfico
+theme_set(theme_sjplot2())
+```
+
+## Beijing
+
+```{r}
+loc01<-read.csv("https://raw.githubusercontent.com/jmsocuellamos/DatosBIOTEC/master/CaseStudies/Beijing/PRSA_Data_Aotizhongxin_20130301-20170228.csv",header=TRUE)
+```
+
+```{r setup, warning=FALSE}
+#Gráfica 
+ggplot(loc01, aes(x = TEMP, y = O3)) +
+geom_point() +
+theme_bw() +
+stat_smooth(method= "lm", se = FALSE)
+```
+
+caption =  "nombre de la gráfica"
+``` {r, warning = FALSE, fig.width= 14, fig.height=6}
+#transformación, se añade la librería gridExtra para poder dibujar más de una gráfica. 
+library(gridExtra)
+g1 <- ggplot(loc01, aes(x=TEMP, y = log(O3))) +
+  geom_point()
+
+g2 <- ggplot(loc01,aes(x = TEMP, y = sqrt(O3))) + 
+  geom_point()
+
+grid.arrange(g1,g2,nrow=1,ncol(2))
+
+#nos quedamos con la raíz cuadrada porque es donde pensamos que podemos ajustar una recta mejor.
+
+loc01 <- loc01 %>% mutate(sqrtO3 = sqrt(O3))
+names(loc01)
+```
+
+```{r warning=FALSE}
+#hacemos una gráfica con el dataframe con O3 en forma de raíz para ver si este modelo se ajusta mejor
+ggplot(loc01, aes(x = TEMP, y = sqrtO3)) +
+geom_point() +
+theme_bw() +
+stat_smooth(method= "lm", se = FALSE)
+
+
+```
+```{r}
+# Residuos y medidas de diagnóstico
+diagnostico <- fortify(fit)
+# Gráfico de residuos estandarizados vs ajustados
+ggplot(diagnostico, aes(x = .fitted, y = .stdresid)) + 
+  geom_point() + 
+  stat_smooth(method = "lm", se = FALSE) +
+  theme_bw()
+```
+```{r}
+bptest(fit)
+```

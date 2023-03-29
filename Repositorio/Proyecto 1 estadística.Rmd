@@ -1,0 +1,72 @@
+---
+title: "Estadística"
+author: "Nuria"
+date: "2023-03-03"
+output: html_document
+---
+
+```{r librerias,echo=TRUE,error=FALSE,warning=FALSE,message=FALSE}
+# librerias estándar para tratamiento de datos
+library(tidyverse)
+library(stringr)
+library(forcats)
+library(lubridate)
+library(magrittr)
+library(broom)
+library(pubh)
+library(lmtest)
+library(MASS)
+library(kableExtra)
+library(mosaic)
+library(moonBook)
+library(sjlabelled)
+library(sjPlot)
+library(reshape2)
+library(olsrr)
+library(ggfortify)
+library(mgcv)
+library(modelr)
+library(alr4)
+```
+
+
+
+```{r cars}
+#Gráfica 
+ggplot(gas2011, aes(x = TIT, y = TEY)) +
+geom_point() +
+theme_bw()
+```
+
+```{r cars}
+#Modelo basal
+fit <- lm(TEY ~ TIT, data = gas2011)
+tidy(fit)
+summary(fit)
+glm_coef(fit)
+```
+
+```{r cars}
+#nos ayuda a predecir donde 
+plot_model(fit,"pred", terms = ~TIT,
+ci.lvl = NA,
+show.data = TRUE,
+axis.title = c("TIT", "TEY"),
+title = " ")
+```
+
+```{r}
+#se mira si la varianza es constante, como sale un p-valor signiticativo esta good
+bptest(fit)
+```
+
+```{r}
+#shapiro.test(as.nueric(fit)
+ggplot(fit, aes(sample = .stdresid)) +
+stat_qq() +
+geom_abline() +
+theme_bw()
+```
+```{r cars}
+dwtest(fit)
+```

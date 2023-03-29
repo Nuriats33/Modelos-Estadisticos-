@@ -1,0 +1,219 @@
+---
+title: "Validar modelo Airforl"
+author: "Nuria"
+date: "2023-03-15"
+output: html_document
+---
+
+```{r librerias,echo=TRUE,error=FALSE,warning=FALSE,message=FALSE}
+# librerias estándar para tratamiento de datos
+library(tidyverse)
+#library(tidymodels)
+library(stringr)
+library(forcats)
+library(lubridate)
+library(magrittr)
+library(broom)
+library(pubh)
+library(lmtest)
+library(MASS)
+library(kableExtra)
+library(mosaic)
+library(moonBook)
+library(sjlabelled)
+library(sjPlot)
+library(reshape2)
+library(olsrr)
+library(ggfortify)
+library(mgcv)
+library(modelr)
+library(alr4)
+```
+
+## Airfoil
+
+Conjunto de datos de la NASA, obtenidos a partir de una serie de ensayos aerodinámicos y acústicos de secciones bidimensionales y tridimensionales de palas aerodinámicas realizados en un túnel de viento anecoico. El objetivo que se persigue es conocer el nivel de presión sonora registardo en función de diferentes modificaciones del tunel de viento. El conjunto de datos comprende perfiles aerodinámicos NACA 0012 de diferentes tamaños a varias velocidades y ángulos de ataque en el túnel de viento. La envergadura del perfil y la posición del observador fueron las mismas en todos los experimentos. Las variables registradas en el experimento son: 1. **Frecuency**: Frecuencia, en hercios. 2. **Angle**: Ángulo de ataque, en grados. 3. **Chord**: Longitud de cuerda, en metros. 4. **Velocity**: Velocidad de la corriente libre, en metros por segundo. 5. **Suction**: Espesor de desplazamiento del lado de aspiración, en metros. 6. **Sound**: Nivel de presión sonora escalado, en decibelios.
+
+Lectura del banco de datos:
+
+```{r}
+url <- "https://raw.githubusercontent.com/jmsocuellamos/DatosBIOTEC/master/CaseStudies/Airfoil/airfoil_self_noise.csv"
+airfoil<-read.csv(url,header=TRUE)
+airfoil
+```
+```{r,warning=FALSE}
+#modelo 
+fit.airfoil <- lm(Sound ~ Frecuency + Angle + Chord + Velocity + Suction, data=airfoil)
+
+stats::step(fit.airfoil)
+```
+Con el AIC no elimino ninguna 
+```{r,warning=FALSE}
+ols_step_backward_p(fit.airfoil,prem = 0.05)
+```
+Según el Test F, no hay q eliminar ninguna variable 
+
+```{r,warning=FALSE}
+glance(fit.airfoil)
+```
+que no haya q eliminar ninguna predictora, no significa que el modelo sea bueno, aquí vemos que el r^2 es solo de 0.5, por lo que tiene un valor explicativo de la mitad. También vemos que el p.valor es significativo por lo que efectivamente alguna variable es relevante. 
+
+Si no sale ninguna lo que podemos hacer es sacar la tabla secuencial con la finalidad de chequear manualmente si hay algun punto en el que podamos cortar eso. Lo normal es que si he usado el automatico, puesque veamos lo mismo que este nos ha dado. 
+
+```{r,warning=FALSE}
+ols_step_best_subset(fit.airfoil)
+```
+No eliminamos ninguna pedictora porque si vamos a las gráficas vemos que todo lo que estamos haciendo funciona bien bajo el supuesto de que son modelo lineales, si no tenemos rectas todo eso no es valido porque en realidad nuestro modelo no es ese. Como podemos ver en la siguiente gráfica:
+
+```{r,warning=FALSE}
+plot_model(fit.airfoil, "pred",
+ci.lvl = NA,
+show.data = TRUE,
+title = "Modelo ajustado")
+```
+Ahora bien, probamos este mismo modelo metiendo unos cuantos cuadrados como con la frecuencia y el angle. En estos vemos que...
+
+```{r,warning=FALSE}
+fit.airfoil2 <- lm(Sound ~ Frecuency + I(Frecuency^2)
+                   + Angle +I(Angle^2) +
+                   + Chord + Velocity + Suction +I(Suction^2), data=airfoil)
+
+stats::step(fit.airfoil2)
+```
+Problema en el ajuste del modelo, estos sistemas no idetifican bien ( en el segundo paso nos ha dejado el grado 2, cuando hemos quitado el 1)
+Nunca puedo quitar un grado inferior si tengo un superior en la ecuación.
+
+En el modelo que nos propone tenemos Suction^2, por lo que la unica diferencia con este y el que realmente deberiamos coger, es "suction", que debería ser añadido. Por tanto, el siguiente paso es comparar estos dos modelos y ver si son iguales
+
+```{r,warning=FALSE}
+#hacemos un modelo añadiendo suction 
+modelo2 <- lm(Sound ~ Frecuency + I(Frecuency^2)
+                   + Angle +
+                   + Chord + 
+                + Velocity + 
+                + Suction + I(Suction^2), data=airfoil)
+
+anova(modelo2, fit.airfoil2)
+```
+Como la comparación me da un valor de 0, entiendo que son iguales por lo que me quedo con el mas sencillo posible.
+```{r,warning=FALSE}
+#Quitamos todas las cuadráticas de golpe 
+modelo3 <- lm(Sound ~ Frecuency + I(Frecuency^2)
+                   + Angle +
+                   + Chord + 
+                  + Velocity , data=airfoil)
+
+#comparamos modelos 
+anova(modelo3, modelo2, fit.airfoil2)
+```
+
+Si quitamos las dos de golpe, estamos quitando un efecto que dice que es relevante (no sabemos si para bien o para mal, ese es el problema). Es decir que sí hay diferencia entre el modelo3 y el modelo2. 
+
+```{r,warning=FALSE}
+modelo3 <- lm(Sound ~ Frecuency + I(Frecuency^2)
+                   + Angle +
+                   + Chord + 
+                  + Velocity , data=airfoil)
+
+glance(modelo3)
+```
+
+p-valor significativo <-  algún coeficiente es distinto de 0.
+
+```{r,warning=FALSE}
+#miramos los coeficientes
+glm_coef(modelo3)
+```
+Puede parecer que la frecuencia no afecta pero sí porque tiene pinta que esta redondeado a dos decimales solo. Nos sale q el p-valor es significativo
+
+##Una slución a este problema es estandarizar siempre todas las variables y trabajar con ellos.
+
+```{r,warning=FALSE}
+#estandarizamos el primer modelo
+tab_model(fit.airfoil2,
+          show.std=TRUE,
+          show.r2 = FALSE)
+
+```
+
+```{r,warning=FALSE}
+#estandarizamos el segundo modelo
+tab_model(modelo2,
+          show.std=TRUE,
+          show.r2 = FALSE)
+
+```
+
+
+## Concrete
+
+El hormigón es el material más importante en ingeniería civil. La resistencia a la compresión del hormigón es una función altamente no lineal de la edad y los ingredientes utilizados para su fabricación. El conjunto de datos hace referencia a las pruebas de calidad para la obtención de hormigón. Más concretamente se está interesado en estudiar la dureza del hormigón en función de las variables usadas en su fabricació:
+
+1.  **Cement**: cemento (kg en un m\^3 de mezcla)
+2.  **Blast**: residuos de los altos hornos (kg en un m\^3 de mezcla)
+3.  **FlyAsh**: cenizas volantes (kg en un m\^3 de mezcla)
+4.  **Water**: agua (kg en un m\^3 de mezcla)
+5.  **Superplasticizer**: superplastificante (kg en un m\^3 de mezcla)
+6.  **CoarseAggregate**: árido grueso (kg en un m\^3 de mezcla)
+7.  **FineAggregate**: árido fino (kg en un m\^3 de mezcla)
+8.  **Age**: días.
+9.  **Concrete**: dureza del hormigón.
+
+Lectura del banco de datos:
+
+```{r}
+url <- "https://raw.githubusercontent.com/jmsocuellamos/DatosBIOTEC/master/CaseStudies/Concrete/Concrete_Data.csv"
+concrete<-read.csv(url,header=TRUE)
+concrete
+```
+
+Lo primero de todo es contruir un gráfico para poder ver los efectos 
+
+```{r,warning=FALSE}
+#hacemos el modelo 
+
+concr1 <- lm(Concrete ~ Cement + Blast + FlyAsh + Water + Superplasticizer+ CoarseAggregate + FineAggregate + Day, data = concrete )
+plot_model(concr1, "pred",
+ci.lvl = NA,
+show.data = TRUE,
+title = "Modelo ajustado")
+```
+
+Vemos que no hay rectas, en el dia si que hay curvas, pero 1 o 2... pues se prueba jeje. 
+
+
+```{r,warning=FALSE}
+tab_model(concr1)
+```
+Este modelo es todos lineales, y vemos que hay dos valores no significativos. Lo primero que hacemos es quitar esos dos y comparamos.
+
+Antes he hecho el step y me salia que no había q quitar ninguno, eso es porque se vasa en al AIC y para este tipo de modelos lineales es mejor usar el ols_step_blackward_p 
+
+```{r,warning=FALSE}
+ols_step_backward_p(concr1, prem=0.05)
+```
+```{r,warning=FALSE}
+#Segundo modelo sin esas variables 
+concr2 <- lm(Concrete ~ Cement + Blast + FlyAsh + Water + Superplasticizer + Day, data = concrete )
+#vemos los coeficientes y el r^2 es parecido a antes asiq good
+tab_model(concr2,
+          show.std=TRUE)
+#Comparamos y el p-valor es no significativo asiq good
+anova(concr2,concr1)
+```
+Tras quitar variables q no nos sirvan de nada, vamos a intentar mejorar la capacidad explicativa 
+
+```{r,warning=FALSE}
+concr3 <- lm(Concrete ~ Cement + Blast + FlyAsh + Water + Superplasticizer + Day + I(Day^2), data = concrete )
+#hacemos un summary de este modelo, y vemos que la capacidad explicativa ha mejorado 
+glance(concr3)
+
+#comparamos
+anova(concr3,concr2,concr1)
+```
+
+Los siguientes pasos es poner log a cement y superplastic.. y deberiamos ver como poco a poco va aumentando el valor de r^2, es decir, su capacidad explicativa. 
+
+```{r,warning=FALSE}
+concr3 <-  lm(Concrete ~ Cement + log(Cement) + Blast + FlyAsh + Water + Superplasticizer + Day, data = concrete )
+```

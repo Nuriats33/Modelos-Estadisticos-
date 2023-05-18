@@ -1,0 +1,204 @@
+---
+title: "Ejercicios ANOVA"
+author: "Nuria"
+date: "2023-03-29"
+output: html_document
+---
+
+
+```{r librerias,echo=TRUE,error=FALSE,warning=FALSE,message=FALSE}
+# librerias estándar para tratamiento de datos
+library(tidyverse)
+#library(tidymodels)
+library(stringr)
+library(forcats)
+library(lubridate)
+library(magrittr)
+library(broom)
+library(pubh)
+library(lmtest)
+library(MASS)
+library(kableExtra)
+library(mosaic)
+library(moonBook)
+library(sjlabelled)
+library(sjPlot)
+library(reshape2)
+library(olsrr)
+library(ggfortify)
+library(mgcv)
+library(modelr)
+library(alr4)
+```
+
+```{r setup, include=FALSE}
+# Lectura de datos
+ejer02 <- read_csv("https://goo.gl/J2ZKWK", col_types = "dcc")
+str(ejer02)
+```
+Tiene que ser la y la que queremos explicar
+
+```{r}
+#diagrama de cajas
+ggplot(ejer02,aes(x = Bread, y = Butterfat, color = Age)) + 
+  geom_boxplot() +
+  theme_bw()
+```
+
+```{r}
+#diagrama de cajas
+ggplot(ejer02,aes(x = Age, y = Butterfat, color = Bread)) + 
+  geom_boxplot() +
+  theme_bw()
+```
+Nos queda ver si los perfiles son similares (interacción) Podemos hacerlo por raza o por edad de maduración 
+
+```{r}
+# Gráfico de interacción de medias
+ggplot(ejer02,
+aes(x = Age, y = Butterfat, color = Bread)) +
+stat_summary(fun = mean, geom = "point") +
+stat_summary(fun = mean, geom = "line") + 
+  theme_bw()
+```
+Aquí solo vemos las medias, no los extremos por lo que no podemos saber si se cruzan o no. En este caso no estamos considerando la variabilidad. 
+
+```{r}
+# Gráfico de interacción de medias
+ggplot(ejer02,
+aes(x = Bread, y = Butterfat, color = Age)) +
+stat_summary(fun = mean, geom = "point") +
+stat_summary(fun = mean, geom = "line") + 
+  theme_bw()
+```
+En este se ve mejor que no hay interacción debido a que al haber más puntos las medias son más estadisticas. Creemos que no hay interacción porque su comportamiento es muy similar. 
+
+```{r}
+# Ajuste del modelo
+fit <- lm(Butterfat ~ Bread*Age, data = ejer02)
+# Inferencia sobre los parámetros del modelo
+tab_model(fit,
+show.r2 = FALSE,
+show.p = FALSE)
+
+tab_model(fit)
+```
+Este solo me da información del modelo más complejo. Vemos que es significativo por lo que no son iguales (?)
+
+```{r}
+fit.r <- lm (Butterfat ~ Bread+Age, data = ejer02)
+anova(fit.r,fit)
+```
+```{r}
+#Selección basado en test F
+ols_step_backward_p(fit,prem = 0.05)
+#Quitamos la edad porque nos sale que la podemos eliminar
+fit.r <- lm(Butterfat ~ Bread, data = ejer02)
+tab_model(fit.r)
+```
+
+Hemos llegado a la conclusión de que lo único que afecta es la raza
+
+##Ejercicio 4 
+
+```{r}
+ejercicio04 <- read_csv("https://bit.ly/2GhFsl7", col_types = "dccc")
+ejercicio04 <- ejercicio04 %>% 
+   mutate_if(sapply(ejercicio04,is.character),as.factor)
+str(ejercicio04)
+```
+
+
+```{r}
+#diagrama de cajas
+ggplot(ejercicio04,aes(x = Concentracion, y = Rendimiento, color = Catalizador)) + 
+  facet_wrap(.~ Temperatura) +
+  geom_boxplot() +
+  theme_bw()
+```
+Pierdes algo de capacidad de comparación 
+--No son nominales son ordinales--
+```{r}
+# Ajuste del modelo
+fit2 <- lm(Rendimiento ~ Concentracion*Catalizador*Temperatura, data = ejercicio04)
+
+anova(fit2)
+```
+En esta tabla queremos buscar ese efecto triple, el cual no es siginificativo por lo que no hay interacción de las 3 a la vez. 
+No obstante si vemos relación en catalizador con los otros dos. 
+
+
+Este solo me da información del modelo más complejo. Vemos que es significativo por lo que no son iguales (?)
+
+```{r}
+#Selección basado en test F
+ols_step_backward_p(fit2,prem = 0.05)
+```
+
+Pero hay que ir con cuidado con esto porque en un princio nos indica que hay q eliminar la interacción conc.temp , pero la primera de todas sería la interacción triple. por lo que...
+
+```{r}
+#Selección con función step y AIC 
+stats::step(fit2, direction = "backward")
+
+######################
+ejercicio04$Concentracion.f <- ordered(ejercicio04$Concentracion)
+
+#Con ordered lo que hacemos es ordenar los datos para forazar a que pasen de uno a otro de forma "ordenada" 
+
+fit <- lm(Rendimiento ~Concentracion.f*Catalizador*Temperatura, data = ejercicio04)
+
+#summary(fit)
+anova(fit)
+```
+
+Vemos que en la tabla anova siguen saliendo los fatores. Como ya parece que la interacicón timple no tiene sentido, podemos hacer selección del modelo. 
+
+```{r}
+modelo <- stats::step(fit, direction = "backward")
+anova(modelo)
+tab_model(modelo,wrap.labels = 150)
+```
+Para ver diferencias tenemos que ver los coeficientes . el wrap.labels es simplemente para visualizar mejor cuando los etiquetas son muy largas. 
+
+El efecro cuadratico en concentración.f es significativo ->  q hay q pasar por una parabola, no es lineal, tiene cierte curvatura el paso de uno a otro. Nos quedamos con los 3 factores de concentración aunq uno de ellos, no lo pdmeos quitar porq son efectos de la concentración, si no quitamos esta no podemos quitar sus efectos. 
+
+Estos resultados nos dicen que la ecuación es un polinomio cuadrático cosa que es muy relevante a nivel experimental porque ya sabes como va a responder el estudio. 
+
+Es recomentable no usar muchos niveles en una variable, porque puedes tener hasta un polinimico de grado n-1, y eso puede complicar en gran medida el modelo. Recomentable 3-5 niveles no muchos más. 
+
+```{r}
+#Objeto gráfico 
+plot_model(fit,"pred", terms = "Concentracion.f", 
+                show.stat = TRUE,
+                title = "") + 
+                theme_bw()
+```
+como sabemos la temperatura y el catalizador son independientes, no obstante, ambas tienen efecto sobre la temperatura. en esta gráfica unicamente vemos el efecto que tiene la temperatura sobre la concentración.Por tanto, ahora si vamos a la primera gráfica global, vemos que en C2 su tendencia es contraria, es decir, en esos casos hay mayor efecto de catalizador que de temperatura sobre la concentración. 
+
+Modelo <- R~Concentración + Catalizador*Temperatura 
+
+## Ejercicio 6 
+
+```{r}
+densidad <- c(21.8, 21.9, 21.7, 21.6, 21.7, 21.7, 21.4, 21.5, 21.4,
+              21.9, 21.8, 21.8, 21.6, 21.5, 21.9, 22.1, 21.85, 21.9)
+temperatura <- c(rep("T100",5),rep("T125",4),rep("T150",5),
+                 rep("T175",4))
+ejercicio06 <- data.frame(densidad, temperatura)
+```
+
+Podemos trabajar como variable nominal o forzar a que sea ordinal (esto tenemos que hacerlo tras representario, si es lineal pos se deja así, si hay algo raro pues se cambia y se mira si hay polinomio)
+
+```{r}
+#diagrama de cajas
+ggplot(ejercicio06, aes(temperatura,densidad)) + 
+  geom_boxplot() +
+  theme_bw()
+```
+
+Metemos un ordinal y tiramos para alante. 
+
+
+
+

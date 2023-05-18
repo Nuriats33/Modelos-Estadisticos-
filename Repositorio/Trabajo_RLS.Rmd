@@ -1,0 +1,229 @@
+---
+title: "Trabajo Modelos Lineales"
+author: "Nuria"
+date: "2023-05-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r librerias,echo=TRUE,error=FALSE,warning=FALSE,message=FALSE}
+# librerias estándar para tratamiento de datos
+library(tidyverse)
+library(tidymodels)
+library(stringr)
+library(forcats)
+library(lubridate)
+library(magrittr)
+library(broom)
+library(pubh)
+library(lmtest)
+library(MASS)
+library(kableExtra)
+library(mosaic)
+library(moonBook)
+library(sjlabelled)
+library(sjPlot)
+library(reshape2)
+library(olsrr)
+library(ggfortify)
+library(mgcv)
+library(modelr)
+library(alr4)
+library(gridExtra)
+```
+
+```{r}
+# Configuración entorno gráfico
+theme_set(theme_sjplot2())
+```
+
+## R Airfoil 
+Conjunto de datos de la NASA, obtenidos a partir de una serie de ensayos aerodinámicos y acústicos de secciones bidimensionales y tridimensionales de palas aerodinámicas realizados en un túnel de viento anecoico. El objetivo que se persigue es conocer el nivel de presión sonora registardo en función de diferentes modificaciones del tunel de viento. El conjunto de datos comprende perfiles aerodinámicos NACA 0012 de diferentes tamaños a varias velocidades y ángulos de ataque en el túnel de viento. La envergadura del perfil y la posición del observador fueron las mismas en todos los experimentos. Las variables registradas en el experimento son:
+
+1.  **Frecuency**: Frecuencia, en hercios.
+2.  **Angle**: Ángulo de ataque, en grados.
+3.  **Chord**: Longitud de cuerda, en metros.
+4.  **Velocity**: Velocidad de la corriente libre, en metros por segundo.
+5.  **Suction**: Espesor de desplazamiento del lado de aspiración, en metros.
+6.  **Sound**: Nivel de presión sonora escalado, en decibelios.
+
+```{r}
+#Cargamos el dataframe con los datos de interés 
+url <- "https://raw.githubusercontent.com/jmsocuellamos/DatosBIOTEC/master/CaseStudies/Airfoil/airfoil_self_noise.csv"
+airfoil2<-read.csv(url,header=TRUE)
+```
+
+## Análisis gráfico 
+
+```{r}
+#Mostramos el dataframe
+airfoil2
+```
+Aquí podemos ver que todas nuestras variables son numéricas, no tenemos variables categóricas. Como tenemos más de una variable numérica, sabemos que RLS simple no será. 
+
+```{r}
+#Pintamos las gráficas 
+datacomp = melt(airfoil2, id.vars = 'Sound')
+ggplot(datacomp) + 
+  geom_jitter(aes(value,Sound, colour = variable)) + 
+  facet_wrap(~variable, scales = "free_x") + 
+  labs(X = "", y = "Sound")
+```
+
+```{r}
+#Modelo saturado con todas las variables  
+fit.airfoil2 <- lm(Sound ~ Frecuency + Angle + Chord + Velocity + Suction, data=airfoil2)
+
+stats::step(fit.airfoil2)
+ols_plot_resid_stand(fit.airfoil2)
+```
+
+El valor de AIC del "none" es el más pequeño, lo que quiere decir, que según esta función el modelo con mmás capacidad explicativa es el que contiene todas las variables. 
+
+```{r,warning=FALSE}
+ols_step_backward_p(fit.airfoil2,prem = 0.05)
+```
+
+Vamos a ajustar el modelo suponiendo que todas las varialbes hay que elevarlas al cuadrado 
+
+```{r,warning=FALSE}
+#Ajusto el modelo 
+fit.airfoil_aj <- lm(Sound ~ Frecuency + I(Frecuency^2)
+                   + Angle +I(Angle^2) +
+                   + Chord + I(Chord^2) 
+                   + Velocity + I(Velocity^2) + 
+                   + Suction +I(Suction^2), data=airfoil2)
+
+stats::step(fit.airfoil_aj)
+```
+```{r,warning=FALSE}
+#Ajuste del modelo con cuadrados 
+ols_step_backward_p(fit.airfoil_aj,prem = 0.05)
+```
+
+Escribir ecuación del modelo ...
+
+
+
+```{r}
+#Ajusto el modelo quitando las variables que se me indica anteriormente  
+fit.airfoil_aj2 <- lm(Sound ~ Frecuency + I(Frecuency^2)
+                   + Angle +
+                   + Chord + I(Chord^2)
+                   + Velocity + 
+                   + Suction +I(Suction^2), data=airfoil2)
+# Inferencia sobre los parámetros del modelo
+glm_coef(fit.airfoil_aj2)
+```
+```{r}
+#Tabla modelo
+tab_model(fit.airfoil_aj2,
+          show.std = TRUE,
+          show.r2 = TRUE)
+```
+
+Según el p-valor todas las variables son relevantes para le modelo, por lo que, en principio, no habría que quitar ninguna 
+
+Representamos gráficamente la estimación e intervalo de confianza de los coeficientes del modelo para apreciar los efectos descritos:
+
+```{r}
+# Gráfico del ajuste sin estandarizar 
+plot_model(fit.airfoil_aj2, 
+        show.values = TRUE, 
+        vline.color = "yellow")
+```
+
+```{r}
+# Gráfico del ajuste estandarizado 
+plot_model(fit.airfoil_aj2, 
+        show.values = TRUE, 
+        vline.color = "yellow", 
+        type = "std")
+```
+
+
+##Bondad del ajuste 
+```{r}
+# Bondad del ajuste
+glance(fit.airfoil_aj2)
+
+```
+```{r}
+# Tabla ANOVA
+anova(fit.airfoil_aj2)
+```
+
+
+Comprobamos que todas las variables, en presencia del resto, son significativas por lo que no podemos quitar ninguna. 
+
+```{r}
+#Como la succión nos sale a veces no significativan nos raya un poco, asiq vmaos a probar a hacer un anova donde comparamos un modelo con succión y otro sin para ver si tendrian la misma capacidad explicativa. 
+
+fit.airfoil_aj3 <- lm(Sound ~ Frecuency + I(Frecuency^2)
+                   + Angle +
+                   + Chord + I(Chord^2)
+                   + Velocity , data=airfoil2)
+
+anova(fit.airfoil_aj3,fit.airfoil_aj2)
+
+```
+Como el resultado es significativo, significa que no tienen la misma capacidad explicativa, sino que uno es más relevante que el otro. Me quedo pues con el más complejo 
+
+##Dignóstico 
+
+```{r}
+# Valores del diagnóstico 
+diag.airfol <- fortify(fit.airfoil_aj2)
+
+fit.airfoil_aj2
+
+ols_plot_resid_stand(fit.airfoil_aj2)
+```
+
+```{r}
+## Intento de PCA 
+library(FactoMineR)
+library(factoextra)
+airfoil2
+pca <- PCA(X = airfoil2, scale.unit = TRUE, ncp = 6, graph = FALSE)
+
+#Representamos los sujetos en un PCA sin argumento  
+fviz_pca_ind(pca, col.ind = "#00AFBB")
+
+pca$ind$coord
+pca
+
+fviz_contrib(pca, choice = "var")
+
+
+##Pruebo con el modelo al cuadrado 
+#airfoil3 <- c(I(airfoil2$Angle^2),airfoil2)
+#airfoil3
+#pca <- PCA(X = fit.airfoil_aj2, scale.unit = TRUE, ncp = 6, graph = FALSE)
+
+```
+
+```{r}
+#PCA 2 
+df <- airfoil2[1:5]
+airfoil2
+pca2 <- PCA(X = df, scale.unit = TRUE, ncp = 5, graph = FALSE)
+
+#Representamos los sujetos en un PCA sin argumento  
+fviz_pca_ind(pca2, col.ind = "#00AFBB")
+
+#Representamos los sujetos en un PCA con argumento 
+summary(airfoil2$Sound)
+fviz_pca_ind(pca2,
+             col.ind = (airfoil2$Sound <124.8),
+     palette = c("#00AFBB",  "#FC4E07"), 
+     addEllipses = FALSE,
+     ellipse.type = "confidence",
+     legend.title = "Sound")
+
+fviz_contrib(pca, choice="var", axes=6, top =10)
+
+```

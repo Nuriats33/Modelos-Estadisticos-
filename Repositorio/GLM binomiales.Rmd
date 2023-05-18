@@ -1,0 +1,204 @@
+---
+title: "Modelos Lineales Generales"
+author: "Nuria"
+date: "2023-05-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# librerias estándar para tratamiento de datos
+library(tidyverse)
+library(tidymodels)
+library(stringr)
+library(forcats)
+library(lubridate)
+library(magrittr)
+library(broom)
+library(pubh)
+library(lmtest)
+library(MASS)
+library(kableExtra)
+library(mosaic)
+library(moonBook)
+library(sjlabelled)
+library(sjPlot)
+library(reshape2)
+library(olsrr)
+library(ggfortify)
+library(mgcv)
+library(modelr)
+library(alr4)
+```
+
+## Modelos Lineales Generalizados 
+
+No queremos modelizar la respuesta, sino una caracteristica de esta. Lo que ns interesa, es estudiar la probabilidad de x:
+Yi ~Bi (ni, Ri) → E(Yi) = ni*Ri Esto segundo es lo que se utiliza para realizar este tipo de modelos donde la predictora es binomial (si/no). 
+
+La diferencia fundamental con los modelos lineales simples es que la respuesta (Yi )está directamente relacionada con su  media (ni), en este caso, en los generalizados, no es así porque depende también de la probabilidad (Ri) de la misma.  
+
+Ahora bien, para relacionarla con la predictora se hace una especie de transformación (parecido a la de RLS con boxcox) siendo la función g() denomminada función link (enlace). Esta transformación se hace porq estamos en datos que no son normales, y la media no esta directamente relacionada con la respuesta. 
+
+Se conoce como modelo jerarquico donde la I variable esta Yi (numero de veces que ha ocurrido ), en la II está Ri (probabilidad de que haya ocurrido algo).
+
+Es una función no lineal de esas predictoras 
+
+log(ui/(n-ui))= log(nRi/(n-nRi))
+
+log(nRi/(n-nRi)) =XB → Ri = (exp(XB)/(1+exp(XB))) 
+
+##Diagnostico 
+
+se complica porque tenemos que chequear si hemos utilizado bien la fución de enlace, pero vaya que la solución es utilizar una función estandar que nadie me discuta, estos problemas son conocidos como problemas de regresión logistica (qur es la escrita anteriormente), no es la única que se puede utilizar pero es la más sencilla que nos da el problema de probabilidad. (esto es para la binomial)
+
+
+## Hasta aquí general, a partir de aquí vmaos a ir uno por uno ...
+
+## unidad 12 GLM respuesta binomial 
+
+##Ejercicio 6
+
+ Los datos siguientes describen los patrones de comportamiento en el consumo de drogas psicotrópicas en una muestra de individuos del Oeste de Londres. Los investigadores se plantean las preguntas siguientes:
+
+¿Hay diferencias por sexo en el consumo de drogas? ¿Cómo influye la edad para explicar el consumo de psicotrópicos? ¿La edad influye igual en hombres y en mujeres?
+Obtén la expresión y el valor de las predicciones sobre el consumo de psicotrópicos en hombres y en mujeres de 17 y 52 años con el modelo ajustado.
+Las variables usa y nousa contienen la información sobre el uso de drogas psicotrópicas.
+
+```{r}
+sexo <- c(rep("H",4),rep("M",4))
+edad <- c("16-29","30-44","45-64","65-74","16-29","30-44","45-64","65-74")
+usa <- c(21,32,70,43,46,89,169,51)
+nousa <- c(683,596,705,295,738,700,847,196)
+ejercicio06 = data.frame(sexo, edad, usa, nousa)
+```
+
+
+```{r}
+# Calculamos los vivos, la probabilidad de morir, y el 
+# logaritmo de dosis que es la forma habitual de medir 
+# en este tipo de situaciones
+ejercicio06 = ejercicio06 %>% mutate(total= usa + nousa, pusa = usa/total, pnousa = nousa/total)
+ejercicio06
+
+#Representtammos 
+ggplot(ejercicio06,aes(x= edad, y = pusa, color =sexo)) + 
+  geom_point() + 
+  labs(x = "Edad", y = "Probabilodad de consumir") + 
+  theme_bw()
+
+Yres <- cbind(ejercicio06$usa, ejercicio06$nousa)
+
+fit <- glm(Yres ~sexo + ordered(edad), 
+           family=binomial(link = logit),
+           data = ejercicio06)
+
+tab_model(fit, show.r2 = FALSE)
+```
+
+##Ejercicio 1 12.7 
+
+En un experimento se sometió a cierto número de cucarachas (number) a cinco horas de exposición a disulfato de carbono gaseoso a varias concentraciones. Se pretendía investigar la relación existente entre la dosis (dose) de disulfato administrada y la resistencia de los insectos (dead); si existe tal relación, determinar la dosis a la cual es posible garantizar el exterminio del 50% de los insectos.
+
+```{r}
+#Cargamos las bases de datos
+ejercicio01 = read_csv("https://goo.gl/E2MlSZ", col_types = "dii")
+# Calculamos los vivos para el ajuste de modelos
+ejercicio01 = ejercicio01 %>% 
+  mutate(alive = number - dead)
+#Calculamos la probabilidad de morir y la de vivir 
+ejercicio01 = ejercicio01 %>% mutate(total = number, palive = alive/total, pdead = dead/total)
+
+```
+
+```{r}
+#Representamos 
+ggplot(ejercicio01,aes(x= dose, y = pdead)) + 
+  geom_point() + 
+  labs(x = "Dosis", y = "Probabilodad de morir") + 
+  theme_bw()
+```
+```{r}
+Yres <- cbind(ejercicio01$dead,ejercicio01$alive)
+fit.dosis <- glm(Yres  ~ dose,
+          family = binomial(link = logit),
+          data = ejercicio01)
+
+# Resumen del predictor lineal
+tab_model(fit.dosis, 
+          transform = NULL,
+          string.est = "Estimate",
+          show.r2 = FALSE)
+```
+
+La ecuación sería: 
+
+0 = - 34.27*60.72dosis → dosis = 60.72/34.27 → dosis = 1.77. 
+
+##Ejercicio 2 
+
+Se realiza un experimento in vitro para estimar el número de anteras embriogénicas de las especies de plantas Datura innoxia Mill bajo dos condiciones experimentales. El primer tratamiento consiste en almacenar a 3° C durante 48 horas, y el segundo consiste en un control donde no se aplica ningún tratamiento. Además se considera una variable que representa los tres valores de fuerza de centrifugación. Las variables registradas son total, embryogenic, storage, centrifuge. Es de interés en el análisis investigar si efectivamente se demostraba un mayor número de anteras para las diferentes condiciones experimentales.
+
+```{r}
+ejercicio02 = read_csv("https://goo.gl/6P3zRr", col_types = "iici")
+# Recodificación del factor y variable de no embryogenic
+ejercicio02 = ejercicio02 %>%
+  mutate(storage=fct_recode(storage,"Control" = "1","treatment" = "2"),
+         nembrig = total - embryogenic)
+```
+
+```{r}
+#Calculamos la probabilidad de tener o no anteras embriogénicas 
+ejercicio02 = ejercicio02 %>% mutate(pnembrig = nembrig/total, pembryogenic =  embryogenic/total)
+```
+
+```{r}
+#Representamos 
+ggplot(ejercicio02,aes(x= pembryogenic, y = centrifuge, color = storage)) + 
+  geom_point() + 
+  labs(x = "centrifugación", y = "Probabilodad de tener anteras") + 
+  theme_bw()
+```
+```{r}
+Y <- cbind(embryogenic,nembrig) ~ storage*centrifuge
+
+Bin01.01 <- glm(Y,
+          family = binomial(link = logit),
+          data = ejercicio02)
+
+# Resumen del predictor lineal
+tab_model(Bin01.01, 
+          transform = NULL, 
+          string.est = "Estimate",
+          show.r2 = FALSE)
+
+```
+
+```{r}
+# Gráfico
+plot_model(fit.modelo, 
+           transform = NULL, 
+           axis.title = c("Estimate",""),
+           show.values = TRUE)
+```
+
+Estas tablas son muy monas pero redondean a 2 decimales y estamos tratando con modelos sigmoidales, los cuales, puede que la y aumente mucho con un minimo aumento de la x, asique CUIDADO. Es necesario usar step y demostrar estadisicamente si hay que quitar o no esas predictoras. 
+
+```{r}
+#Comprobamos si hay que quitar esas predictoras
+stats::step(Bin01.01)
+```
+Vemos que el AIC es mayor en none, por lo que no hay que quitar la interacción. Como el tab_model nos da valores de 0, no podemos trabajar con estos para sacar la ecuación, por lo  que hacemos un summary para obtener estos datos: 
+
+```{r}
+#Conseguimos los valores que tab_model no nos daba 
+summary(Bin01.01)
+```
+Ecuación: 
+log(Pi/1Pi) = 0.146 + 0.796 * storagetreatment - 0.00012 * centrifuge - 0.002 * storagetreatment:centrifuge
+
+##Diagnostico y predicción 
+

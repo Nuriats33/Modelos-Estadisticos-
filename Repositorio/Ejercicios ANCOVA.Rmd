@@ -1,0 +1,528 @@
+---
+title: "ANCOVA"
+author: "Nuria"
+date: "2023-04-21"
+output: html_document
+---
+Resumen de los 3 tipos de análisis según el modelo:
+
+Modelos de regresión → Y~X (aquí no había grupos, por lo que vemos si el error aumenta o no según me muevo en la x)
+
+Modelos ANOVA → Y~F (ya no me puedo mover sobre la x, aquí verifico que la variabilidad de los grupos es la misma)
+
+Modelos ANCOVA → Y~F + X ( aquí tengo dos fuentes de variabilidad, y la que más me interesa controlar es el factor) Si vemos las 3 graficas de los 3 modelos, vemos los dos factores. Si yo tengo una recta, tenemos que hacer un test de homogeniedad como si fuera un modelo de regresión, pero al meter un factor lo que tenemos que mirar es como se distrubuye esa nube de puntos sobre una recta y que la variabilidad entre ellas sea la misma como mínimo. 
+
+En definitiva, nos interesa que los factores tengan variabilidad de tipo constante, así tendremos pocos problemas con las rectas. 
+
+
+```{r librerias,echo=TRUE,error=FALSE,warning=FALSE,message=FALSE}
+# librerias estándar para tratamiento de datos
+library(tidyverse)
+library(stringr)
+library(forcats)
+library(lubridate)
+library(magrittr)
+library(broom)
+library(pubh)
+library(lmtest)
+library(MASS)
+library(kableExtra)
+library(mosaic)
+library(moonBook)
+library(sjlabelled)
+library(sjPlot)
+library(reshape2)
+library(olsrr)
+library(ggfortify)
+library(mgcv)
+library(modelr)
+library(alr4)
+```
+
+##Ejercicio 1
+ Disponemos de los datos de peso de 24 niños recién nacidos (peso), su sexo (sexo; “H” = Hombres y “M” = Mujeres) y la edad de sus madres (edad). Nos gustaría ser capaces de determinar un modelo que explique el peso de los niños recién nacidos en función de su sexo y de la edad de sus madres.
+ 
+```{r}
+# Lectura de datos
+edad <- c(40, 38, 40, 35, 36, 37, 41, 40, 37, 38, 40, 38,
+          40, 36, 40, 38, 42, 39, 40, 37, 36, 38, 39, 40)
+peso <- c(2968, 2795, 3163, 2925, 2625, 2847, 3292, 3473, 
+          2628, 3176, 3421, 2975, 3317, 2729, 2935, 2754, 
+          3210, 2817, 3126, 2539, 2412, 2991, 2875, 3231)
+sexo <- gl(2,12, labels=c("H", "M"))
+ejer01 <- data.frame(edad, peso, sexo)
+
+```
+
+```{r}
+# Comenzamos con el modelo más sencillo
+
+# Modelo con una única recta
+M0 <- lm(peso ~ edad, data = ejer01)
+
+# M1: modelo con rectas paralelas
+M1 <- lm(peso ~ sexo + edad, data = ejer01)
+
+# M2: modelo con rectas no paralelas
+M2 <- lm(peso ~ sexo + edad + sexo:edad, data = ejer01)
+
+# grid de valores para construir los modelos
+grid <- ejer01 %>% data_grid(sexo, edad) %>% 
+   gather_predictions(M0, M1, M2)
+
+# Gráfico
+ggplot(ejer01,aes(edad, peso, colour = sexo)) + 
+  geom_point() + 
+  geom_line(data = grid, aes(y = pred)) +
+  facet_wrap(~ model) + theme_bw() + 
+  labs(x = "Edad", y = "Peso") 
+```
+
+Si la nube de puntos esta muy mezclado entre sí, nos quedamos con la primera, ya que es la más sencilla de todas y siempre tendemos a coger el más sencillo. No significa que se quede con ese, pero generalmente el 3 lo descarta enseguida (lo que aporta ese modelo es tan pequeño que no vale la pena a nivel estadístico)
+
+##24/04/2023
+
+```{r}
+# Modelo saturado
+fit.peso <- lm(peso ~ sexo * edad, data = ejer01)
+# Selección del modelo
+ols_step_backward_p(fit.peso, prem = 0.05)
+```
+Nos quedamos con el modelo M1(modelo de rectas paralelas) porque el summary nos indica que la interacción entre las dos variables se puede eliminar, por lo que no es significativo. Si se hace con el modelo M1 vemos que nos indica que ninguna variable tiene que ser eliminada. 
+
+```{r}
+# Modelo saturado
+fit.peso2 <- lm(peso ~ edad + sexo, data= ejer01)
+# Parámetros estimados
+tab_model(fit.peso2,
+show.r2 = TRUE,
+show.p = TRUE)
+```
+
+Las ecuaciones serían :
+
+Hombres: -1610.28 + 0 + 120.89*edad
+Mujeres:-1610.28 + (-163.04) + 120.89*edad
+
+Entre una y otra la única diferencia es lo que incrementa por el sexo, por lo que la edad de la madre es indiferente en el peso del neonato (no hay interacción)
+Además podemos ver que por que cuanto mayor es la madre en edad, mas gordi esta el bb. 
+
+Los negativos a veces rayan y más cuando se habla de variables como el peso(el cual realmente no puede ser negativo), pero esque cuando tenemos covariables hay que tener mucho cuidado porque hay q ver en que rango se mueve la edad para asegurarnos de que ese valor es posivito (en este caso, la edad de la madre será >15 años, por lo que eso compensa el negativo del peso).
+
+##Diagnóstico 
+
+A continuación, se presenta el diagnóstico para el modelo de tiempos de vida. Para realizar el diagnóstico partimos del modelo obtenido en la sección anterior.
+
+```{r}
+# Valores de diagnóstico
+diagnostico <- fortify(fit.peso2)
+# Gráfico
+ggplot(diagnostico,aes(x = edad, y = .stdresid, colour = sexo)) + 
+   geom_point() +
+   geom_hline(yintercept = 0, col = "red") +
+   facet_wrap(. ~ sexo) + 
+  theme_bw()
+```
+
+Seguidamente, se hacen los estudios para verificar que nuestra hipótesis  es correcta, es decir, que el p.valor no sea significativo. Esto es así porque estamos comprobando que la varianza entre ambos grupos sea la misma y así poder quedarnos con el segundo modelo (M1).
+
+```{r}
+# Tests de hipótesis 1
+ols_test_normality(fit.peso2)
+```
+
+```{r}
+# Tests de hipótesis 2
+leveneTest(.stdresid ~ herramienta, data = diagnostico)
+```
+En el primer test hay que tener en cuenta solo Kolmogorov-Smirnov , el resto mejor no.  
+
+Puesto que ambos tests resultan no significativo se verifican las hipótesis del modelo, por lo que estamos en condiciones de afirmar que el modelo resultante es adecuado para explicar el sexo en función del peso y de la edad.
+
+```{r}
+# Análisis de influencia
+ols_plot_cooksd_chart(fit.peso2) + theme_bw()
+```
+Si el paso anterior nos ha salido good, esto no hace falta hacerlo, porque al final este apartado nos sirve para saber que punto exacto es el que nos está dando el error. Asiq si nos sale no significativo nuestro estudio de dignóstico ya ha terminado. :)
+
+
+##Ejercicio 5
+Una empresa dedicada a la fabricación de aislantes térmicos y acústicos establece un experimento que mide la pérdida de calor (Calor) a través de cuatro tipos diferentes de cristal para ventanas (Cristal) utilizando cinco graduaciones diferentes de temperatura exterior (TempExt). Se prueban tres hojas de cristal en cada graduación de temperatura, y se registra la pérdida de calor para cada hoja.
+
+```{r}
+# Lectura de datos
+ejer05 <- read_csv("https://goo.gl/V6hyVW", col_types = "ddc") 
+ejer05 <- ejer05 %>%
+  mutate_if(sapply(ejer05,is.character),as.factor) 
+```
+
+```{r}
+# Comenzamos con el modelo más sencillo
+
+# Modelo con una única recta
+M0 <- lm(Calor ~ TempExt, data = ejer05)
+
+# M1: modelo con rectas paralelas
+M1 <- lm(Calor ~ TempExt + Cristal, data = ejer05)
+
+# M2: modelo con rectas no paralelas
+M2 <- lm(Calor ~ TempExt + Cristal + TempExt:Cristal, data = ejer05)
+
+# grid de valores para construir los modelos
+grid <- ejer05 %>% data_grid(TempExt, Cristal) %>% 
+   gather_predictions(M0, M1, M2)
+
+# Gráfico
+ggplot(ejer05,aes(TempExt, Calor, colour = Cristal)) + 
+  geom_point() + 
+  geom_line(data = grid, aes(y = pred)) +
+  facet_wrap(~ model) + theme_bw() + 
+  labs(x = "TempExt", y = "Calor") 
+```
+Vemos que tienen el mismo problema todos, y es que la nube de puntos tiene más forma de curva que de recta, por lo que les cambiamos la forma. (como máximo serían 4 grados porque son los intervalos que hay) Para añadirlo se pone en la linea en la que se escriben los modelos. 
+
+```{r}
+#Mismos modelos pero con grado 3
+# Modelo con una única recta
+M0 <- lm(Calor ~ TempExt + I(TempExt^2) + I(TempExt^3), data = ejer05)
+
+# M1: modelo con rectas paralelas
+M1 <- lm(Calor ~ TempExt + Cristal + I(TempExt^2) + I(TempExt^3), data = ejer05)
+
+# M2: modelo con rectas no paralelas
+M2 <- lm(Calor ~ Cristal *(TempExt + I(TempExt^2) + I(TempExt^3)) , data = ejer05)
+
+# grid de valores para construir los modelos
+grid <- ejer05 %>% data_grid(TempExt, Cristal) %>% 
+   gather_predictions(M0, M1, M2)
+
+# Gráfico
+ggplot(ejer05,aes(TempExt, Calor, colour = Cristal)) + 
+  geom_point() + 
+  geom_line(data = grid, aes(y = pred)) +
+  facet_wrap(~ model) + theme_bw() + 
+  labs(x = "Temperatura de Exterior", y = "Calor") 
+```
+A nosotros las aristas nos molestan, buscamos comportamientos suaves. Se consigue mejorando los modelos polinomincos con modelos suavizados. ( se verá en el siguiente tema)
+
+## Resumen→realizar el más dificl y luego ir simplificandolo  
+
+## 24/04/2023
+
+```{r}
+# Modelo saturado
+fit.calor <- lm(Calor ~ Cristal *(TempExt + I(TempExt^2) + I(TempExt^3)) , data = ejer05)
+# Selección del modelo
+ols_step_backward_p(fit.calor, prem = 0.05)
+```
+
+Vale la pena empezar por el modelo en el que ya añadimos los polinómios, ya que sino tardariamos muchisimo más para llegar al mismo punto (es importante siempre aprovechar toda la información que nos pueda dar la gráfica)
+
+## Modelo lineal 
+```{r}
+# Modelo saturado
+fit.calor.lin <- lm(Calor ~ TempExt + Cristal, data = ejer05)
+
+# Parámetros estimados
+tab_model(fit.calor.lin,
+show.r2 = TRUE,
+show.p = TRUE)
+```
+
+```{r}
+# Valores de diagnóstico
+diagnostico <- fortify(fit.calor.lin)
+# Gráfico
+ggplot(diagnostico,aes(x = TempExt, y = .stdresid, colour = Cristal)) + 
+   geom_point() +
+   geom_hline(yintercept = 0, col = "red") +
+   facet_wrap(. ~ Cristal) + 
+  theme_bw()
+```
+En esta gráfica de residuos frente a la temperatura es en el único analis donde se observa que el compotamiento  NO es aleatorio (vemos un patron que corresponde a la curva de grado 3)
+
+Si no son aleatorios no se puede utilizar para predecir este modelo.
+
+Es decir, estos gráficos son útiles para los PROBLEMAS DE TENDENCIA. si nos quedarnos con este modelo estaríamos añadiendo un error extra. 
+
+```{r}
+glance(fit.calor.lin) 
+```
+Con esto vemos que el r cuadrado es muy alto (0.98). Y si hacemos la hipotesis 1 y 2 vemos que nos sale no significativo, es decir, podriamos equivocarnos y pensar que el modelo esta okk, cuando realmente no, porque viendo la gráfica vemos que hay un compartamiento que no estamos explicando(cosa que arreglariamos con un polínomicos).
+
+
+## Modelo polinómico 
+
+```{r}
+# Modelo saturado
+fit.calor.pol <- lm(Calor ~ TempExt + Cristal + I(TempExt^2) + I(TempExt^3), data = ejer05)
+
+# Parámetros estimados
+tab_model(fit.calor.pol,
+show.r2 = TRUE,
+show.p = TRUE)
+```
+
+```{r}
+# Valores de diagnóstico
+diagnostico <- fortify(fit.calor.pol)
+# Gráfico
+ggplot(diagnostico,aes(x = TempExt, y = .stdresid, colour = Cristal)) + 
+   geom_point() +
+   geom_hline(yintercept = 0, col = "red") +
+   facet_wrap(. ~ Cristal) + 
+  theme_bw()
+```
+En este caso,vemos que al principio hay más rediccion que al final lo cual se corrige con un logaritmo en la Y.
+
+Vemos tambien que en el cristal C hay un residuo (+-4) que se sale del rango (+-2) donde deben estar todos los residuo, para arreglarlo, simplemente tenemos que quitarlo, volver a hacerlo todo de nuevo y ver cual es el resultado que tenemos. (los test van a salir bien, el r^2 tambien, pero vamos a ver como en estos gráficos todos los residuos se van a dispersar y la tendencia que vemos ya no va a estar). 
+
+```{r}
+# Tests de hipótesis 1 (normalidad)
+ols_test_normality(fit.calor.pol)
+```
+
+```{r}
+# Tests de hipótesis 2 (homogeniedad)
+leveneTest(.stdresid ~ Cristal, data = diagnostico)
+```
+##Ejercicio 5 sin el residuo 36 que se salia de la gráfica. 
+
+```{r}
+#Miramos que punto es ese de nuestro dataframe. 
+ejer05[34:38,]
+#Vemos que su temp es de  11, bastante diferente al resto de los residuos del grupo
+datosnuevos <- ejer05[-36,]
+```
+
+```{r}
+# Comenzamos con el modelo más sencillo
+
+# Modelo con una única recta
+M0 <- lm(Calor ~ TempExt, data = datosnuevos)
+
+# M1: modelo con rectas paralelas
+M1 <- lm(Calor ~ TempExt + Cristal, data = datosnuevos)
+
+# M2: modelo con rectas no paralelas
+M2 <- lm(Calor ~ TempExt + Cristal + TempExt:Cristal, data = datosnuevos)
+
+# grid de valores para construir los modelos
+grid <- datosnuevos %>% data_grid(TempExt, Cristal) %>% 
+   gather_predictions(M0, M1, M2)
+
+# Gráfico
+ggplot(datosnuevos,aes(TempExt, Calor, colour = Cristal)) + 
+  geom_point() + 
+  geom_line(data = grid, aes(y = pred)) +
+  facet_wrap(~ model) + theme_bw() + 
+  labs(x = "TempExt", y = "Calor") 
+```
+
+```{r}
+#Mismos modelos pero con grado 3
+# Modelo con una única recta
+M0 <- lm(Calor ~ TempExt + I(TempExt^2) + I(TempExt^3), data = datosnuevos)
+
+# M1: modelo con rectas paralelas
+M1 <- lm(Calor ~ TempExt + Cristal + I(TempExt^2) + I(TempExt^3), data = datosnuevos)
+
+# M2: modelo con rectas no paralelas
+M2 <- lm(Calor ~ Cristal *(TempExt + I(TempExt^2) + I(TempExt^3)) , data = datosnuevos)
+
+# grid de valores para construir los modelos
+grid <- datosnuevos %>% data_grid(TempExt, Cristal) %>% 
+   gather_predictions(M0, M1, M2)
+
+# Gráfico
+ggplot(datosnuevos,aes(TempExt, Calor, colour = Cristal)) + 
+  geom_point() + 
+  geom_line(data = grid, aes(y = pred)) +
+  facet_wrap(~ model) + theme_bw() + 
+  labs(x = "Temperatura de Exterior ºC", y = "Calor") 
+```
+
+```{r}
+# Modelo saturado
+fit.calor <- lm(Calor ~ Cristal *(TempExt + I(TempExt^2) + I(TempExt^3)) , data = datosnuevos)
+# Selección del modelo
+ols_step_backward_p(fit.calor, prem = 0.05)
+```
+
+```{r}
+# Modelo saturado
+fit.calor.pol <- lm(Calor ~ TempExt + Cristal + I(TempExt^2) + I(TempExt^3), data = datosnuevos)
+
+# Parámetros estimados
+tab_model(fit.calor.pol,
+show.r2 = TRUE,
+show.p = TRUE)
+```
+
+```{r}
+# Valores de diagnóstico
+diagnostico <- fortify(fit.calor.pol)
+# Gráfico
+ggplot(diagnostico,aes(x = TempExt, y = .stdresid, colour = Cristal)) + 
+   geom_point() +
+   geom_hline(yintercept = 0, col = "red") +
+   facet_wrap(. ~ Cristal) + 
+  theme_bw()
+```
+Vemos que en el cristal C los puntos están mucho mas abiertos que sin haber hecho lo anteior.
+
+
+
+
+##Ejercicio 3 26/04/2023
+
+ Se ha realizado un estudio para establecer la calidad de los vinos de la variedad Pino Noir en función de un conjunto de características analizadas. Las características analizadas son claridad, aroma, cuerpo, olor y matiz. Para medir la calidad se organiza una cata ciega a un conjunto de expertos y se calcula la puntuación final de cada vino a partir de la información de todos ellos. Además se registra la región (region) de procedencia del vino por si puede influir en la calidad del vino.
+ 
+```{r}
+# Lectura de datos
+ejer03 <- read_csv("https://goo.gl/OX9wgM", col_types = "ddddddc")
+```
+
+```{r}
+#Dibujamos todos los gráficos 
+library(gridExtra)
+g1 <- ggplot(ejer03, aes(claridad,calidad, col = region)) +
+geom_point() +
+theme_bw() +
+geom_smooth(method= "lm", se = FALSE)
+
+g2 <- ggplot(ejer03, aes(aroma,calidad, col = region)) +
+geom_point() +
+theme_bw() +
+geom_smooth(method= "lm", se = FALSE)
+
+g3 <- ggplot(ejer03, aes(olor,calidad, col = region)) +
+geom_point() +
+theme_bw() +
+geom_smooth(method= "lm", se = FALSE)
+
+g4 <- ggplot(ejer03, aes(cuerpo ,calidad, col = region)) +
+geom_point() +
+theme_bw() +
+geom_smooth(method= "lm", se = FALSE)
+
+g5 <- ggplot(ejer03, aes(matiz,calidad, col = region)) +
+geom_point() +
+theme_bw() +
+geom_smooth(method= "lm", se = FALSE)
+
+ grid.arrange(g1, g2, g3, g4, g5, ncol=3)
+```
+Siempre vemos el mismo orden en el que aparecen, (ese es el efecto de la región) además podemos ver que los que están en la región 0 me van a dar mejor vino. 
+
+En el primer gráfico vemos que no hay tendencia (hay que olvidarse de los colores), por lo que la claridad no parece influir en la calidad del vino. No obstante, el aroma, el cuerpo y el olor si influyen. En el matiz, si hay una tendencia en la region pero no en la calidad. 
+
+Como de los 3 que si son significativos son parecidos, nos podemos quedar con uno. No sabemos con cual quedarnos, pero 100% es mejor si cogemos el que tiene menos variabilidad (el cuerpo tiene bastante asiq no jeje), Nos quedamos con aroma y olor. Además estas dos variables están relacionadas, por lo que, si ponemo una seguramente la otra nos sobre. 
+
+Si las tendecias no tienen pendiente quiere decir que no van a ser significativa sobre la otra (como vemos en la gráfica del matiz, donde son prácticamente horizontales) cuidado con esto. 
+
+
+
+```{r}
+# Modelo saturado
+modelo <- lm(calidad ~ region *(claridad+aroma+olor+cuerpo+matiz) , data = ejer03)
+# Selección del modelo
+ols_step_backward_p(modelo, prem = 0.05)
+```
+Nos quita las interacciones de la region con el aroma, en sus gráficos las rectas se cortan pero no hay pendiente casi (son horizontales). La que tiene más pendiente es el olor, por lo que nos vamos a quedar con esa variable. 
+
+```{r}
+# Modelo saturado
+fit.calor.pol <-lm(calidad ~ region * olor, data = ejer03)
+
+# Parámetros estimados
+tab_model(fit.calor.pol,
+show.r2 = TRUE,
+show.p = TRUE)
+```
+
+```{r}
+# Valores de diagnóstico
+diagnostico <- fortify(fit.calor.pol)
+# Gráfico
+ggplot(diagnostico,aes(x = olor, y = .stdresid, colour = region)) + 
+   geom_point() +
+   geom_hline(yintercept = 0, col = "red") +
+   facet_wrap(. ~ region) + 
+  theme_bw()
+```
+Cuando hay pocos puntos es dificil, si q parece q la variabilidad disminuye según la puntualidad aumenta, pero eso a veces es por como se puntúa
+
+
+está por acabar....
+
+## Ejercicio 2 Datos de producción (tema10)
+
+ Se realiza un ensayo agrícola para estudiar la producción de cierto tipo de planta en dos localidades en función de la densidad de plantas en la parcela de producción. Las variables recogidas en el experimento son la densidad de plantas (Densidad), la producción global obtenida (Produccion), y la localidad donde se encuentra la parcela de producción (Localidad). El banco de datos obtenido se presenta a continuación:
+  
+```{r}
+Densidad <- c(23.48, 26.22, 27.79, 32.88, 33.27, 36.79, 
+              37.58, 37.58, 41.49, 42.66, 44.23, 44.23, 
+              51.67, 55.58, 55.58, 57.93, 58.71, 59.5, 
+              60.67, 62.63, 67.71, 70.06, 70.45, 73.98, 
+              73.98, 78.67, 95.9, 96.68, 96.68,101.38, 
+              103.72, 104.51, 105.68, 108.03,117.82, 127.21, 
+              134.26, 137.39, 151.87, 163.61, 166.35, 184.75, 
+              18.78, 21.25, 23.23, 27.18, 30.15, 31.63, 32.12, 
+              32.62, 32.62, 33.61, 37.07, 38.55, 39.54, 39.54, 
+              41.02, 42.5, 43.98, 45.47, 49.92, 50.9, 53.87, 
+              57.82, 61.78, 61.78, 63.75, 67.71, 71.66, 77.59, 
+              80.56, 86.49, 88.46, 89.45, 90.93, 92.91, 101.81, 
+              103.78, 115.15, 123.06, 144.31, 155.68, 158.15, 
+              180.39)
+Produccion <- c(5.41, 5.46, 5.4, 5.4, 5.29, 5.25, 5.35, 5.25, 
+                5.05, 5.12, 5.29, 5.04, 5.03, 4.96, 4.84, 5.12, 
+                4.97, 5.02, 4.87, 4.83, 4.74, 4.76, 4.79, 4.9, 
+                4.74, 4.51, 4.62, 4.58, 4.62, 4.58, 4.47, 4.4, 
+                4.34, 4.47, 4.44, 4.24, 4.17, 4.2, 4.14, 4.02, 
+                4.14, 4, 5.61, 5.46, 5.2, 5.18, 4.95, 5.13, 
+                4.93, 5.15, 4.72, 5.05, 4.92, 5.04, 4.82, 4.99, 
+                4.66, 4.94, 5, 4.7, 4.51, 4.63, 4.68, 4.53, 4.57, 
+                4.55, 4.6, 4.54, 4.5, 4.24, 4.3, 4.32, 4.29, 4.38, 
+                4.37, 4.26, 4.11, 4.31, 3.9, 4.04, 3.87, 3.69, 3.66, 
+                3.37) 
+Localidad <- as.factor(c(rep("A", 42), rep("B", 42)))
+plantas <- data.frame(Densidad, Produccion, Localidad)
+```
+
+```{r}
+ggplot(plantas, aes(x = Densidad, y = Produccion, colour = Localidad)) +
+  geom_point() +
+  labs(x = "Densidad", y = "Producción") + theme_bw()
+```
+Lo que vemos aquí no es ni una exponencial, ni un polinimio, ni un logaritmo... es una función de suavizado. Vamos a hacer una ANCOVA lineal y ver que surge. 
+
+La ventaja de estos modelos es la flexibilidad, vamos a construir modelos flexibles que se adapten a los datos. 
+
+Validación 1:1 para comrobar que los datos expremos entran o no... 
+
+Pero bueno hoy lo hacemos de tipo ANCOVA (modeos lineal con interacción-rigido)
+
+```{r}
+modelo1 <- lm(Produccion ~ Densidad*Localidad,data = plantas)
+
+ols_step_backward_p(modelo1, prem=0.05)
+
+tab_model(modelo1, digits = 4,wrap.labels =75)
+```
+Vemos que la densidad es negativa, logicamente ya q a mayor densidad menor producción: la producción de la A va a ser superior a la de B. 
+
+```{r}
+# Valores de diagnóstico
+diagnostico <- fortify(modelo1)
+# Gráfico
+ggplot(diagnostico,aes(x = Densidad, y = .stdresid, colour = Localidad)) + 
+   geom_point() +
+   geom_hline(yintercept = 0, col = "red") +
+   facet_wrap(. ~ Localidad) + 
+  theme_bw()
+```
+La cantidad de puntos q hay por debajo es mayor q por arriba, y eso no está good, asiq hay una curva ahí que no he tenido en cuenta (los puntos tienen q ser aleatorios e iguales en cantidad por arriba y por abajo). 
+
+Son modelos muy estrictos donde nuestra ecuación es muy fija y tiene muy poca flexibilidad. (los aditivos estos)
+

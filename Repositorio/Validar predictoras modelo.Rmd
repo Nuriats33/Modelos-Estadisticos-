@@ -38,8 +38,16 @@ Lectura del banco de datos:
 
 ```{r}
 url <- "https://raw.githubusercontent.com/jmsocuellamos/DatosBIOTEC/master/CaseStudies/Airfoil/airfoil_self_noise.csv"
-airfoil<-read.csv(url,header=TRUE)
-airfoil
+airfoil2<-read.csv(url,header=TRUE)
+airfoil2
+```
+
+```{r}
+datacomp = melt(airfoil2, id.vars = 'Sound')
+ggplot(datacomp) + 
+  geom_jitter(aes(value,Sound, colour = variable)) + 
+  facet_wrap(~variable, scales = "free_x") + 
+  labs(X = "", y = "Sound")
 ```
 ```{r,warning=FALSE}
 #modelo 
@@ -105,6 +113,7 @@ modelo3 <- lm(Sound ~ Frecuency + I(Frecuency^2)
 
 #comparamos modelos 
 anova(modelo3, modelo2, fit.airfoil2)
+
 ```
 
 Si quitamos las dos de golpe, estamos quitando un efecto que dice que es relevante (no sabemos si para bien o para mal, ese es el problema). Es decir que sí hay diferencia entre el modelo3 y el modelo2. 
@@ -217,3 +226,11 @@ Los siguientes pasos es poner log a cement y superplastic.. y deberiamos ver com
 ```{r,warning=FALSE}
 concr3 <-  lm(Concrete ~ Cement + log(Cement) + Blast + FlyAsh + Water + Superplasticizer + Day, data = concrete )
 ```
+
+##Probamos un ANCOVA pasando Chord y Velocity a factor 
+```{r}
+
+chordf <- as.factor(airfoil2)
+
+```
+

@@ -187,43 +187,25 @@ ols_plot_resid_stand(fit.airfoil_aj2)
 ## Intento de PCA 
 library(FactoMineR)
 library(factoextra)
-airfoil2
-pca <- PCA(X = airfoil2, scale.unit = TRUE, ncp = 6, graph = FALSE)
-
-#Representamos los sujetos en un PCA sin argumento  
-fviz_pca_ind(pca, col.ind = "#00AFBB")
-
-pca$ind$coord
-pca
-
-fviz_contrib(pca, choice = "var")
-
-
-##Pruebo con el modelo al cuadrado 
-#airfoil3 <- c(I(airfoil2$Angle^2),airfoil2)
-#airfoil3
-#pca <- PCA(X = fit.airfoil_aj2, scale.unit = TRUE, ncp = 6, graph = FALSE)
-
 ```
 
 ```{r}
 #PCA 2 
 df <- airfoil2[1:5]
-airfoil2
-pca2 <- PCA(X = df, scale.unit = TRUE, ncp = 5, graph = FALSE)
+pca.airfoil <- PCA(X = df, scale.unit = TRUE, ncp = 5, graph = TRUE)
 
-#Representamos los sujetos en un PCA sin argumento  
-fviz_pca_ind(pca2, col.ind = "#00AFBB")
+# contribuciones variables en el componente 1 
+fviz_contrib(pca.airfoil, choice="var", axes = 1)
 
-#Representamos los sujetos en un PCA con argumento 
-summary(airfoil2$Sound)
-fviz_pca_ind(pca2,
-             col.ind = (airfoil2$Sound <124.8),
-     palette = c("#00AFBB",  "#FC4E07"), 
-     addEllipses = FALSE,
-     ellipse.type = "confidence",
-     legend.title = "Sound")
-
-fviz_contrib(pca, choice="var", axes=6, top =10)
+# contribuciones variables en el componente 2 
+fviz_contrib(pca.airfoil, choice="var", axes = 2)
 
 ```
+```{r}
+# Obtener las componentes ficticias para tus datos originales
+componentes_ficticias <- pca.airfoil$var$coord
+
+# Ajustar un modelo estadístico utilizando las componentes ficticias
+modelo.means <- lm(diagnosis ~ componentes_ficticias2[, "Dim.1"] + componentes_ficticias2[, "Dim.2"], family = binomial(link = logit), data = meanbreast)
+```
+

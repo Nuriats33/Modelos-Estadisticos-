@@ -1,0 +1,117 @@
+---
+title: 'Trabajo 4: Modelo GLM Binomial'
+author: "Nuria"
+date: "2023-05-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r librerias, echo=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(stringr)
+library(forcats)
+library(lubridate)
+library(magrittr)
+library(broom)
+library(pubh)
+library(datasets)
+library(lmtest)
+library(MASS)
+library(kableExtra)
+library(mosaic)
+library(latex2exp)
+library(moonBook)
+library(sjlabelled)
+library(sjPlot)
+library(reshape2)
+library(olsrr)
+library(ggfortify)
+library(mgcv)
+library(modelr)
+library(alr4)
+#library(equatiomatic) 
+library(survival)
+library(survminer)
+
+theme_set(theme_sjplot2())
+
+```
+
+::: {style="text-align: justify"}
+# Estudio de caso
+
+El conjunto de datos de Wisconsin sobre el cáncer de mama contine información sobre el proceso de diagnóstico de dicha enfermedad a partir de un análisis de imágenes 3D de las mamografías correspondientes a 569 mujeres donde se registran los diferentes núcleos de posibles células cancerosas. El objetivo es valorar la clasificación realizada como tumor benigno o maligno en función de las características obtenidas del análisis de imágenes.
+
+Para cada imagen se registran la media (mean), desviación típica (se), peor medición (worst) como la media de los tres valores más grandes de los diferentes núcleos observados de las siguientes características:
+
+-   radio (media de las distancias del centro a los puntos del perímetro) (radius)
+-   textura (desviación estándar de los valores de la escala de grises) (texture)
+-   perímetro (perimeter)
+-   área (area)
+-   suavidad (variación local de las longitudes de los radios) (smoothness)
+-   compacidad (perímetro\^2 / área - 1,0) (compactness)
+-   concavidad (gravedad de las partes cóncavas del contorno) (concavity)
+-   puntos cóncavos (número de porciones cóncavas del contorno) (concave points)
+-   simetría (symmetry)
+-   dimensión fractal ("aproximación de la línea de costa" - 1) (fractal dimension)
+
+lo que nos porporciona un total de 30 mediciones para sujeto de estudio. También tenemos el código de identificación del susjeto (ID), y la clasificación del tumor como maligno o benigno (Diagnosis).
+
+A continuación se muestra el código para la carga del banco de datos.
+:::
+
+```{r}
+breastcancer<-read_csv("https://raw.githubusercontent.com/jmsocuellamos/DatosBIOTEC/master/trabajos2122/brestcancer.csv")
+breastcancer <- breastcancer %>%
+ mutate_if(sapply(breastcancer,is.character),as.factor) %>%
+ mutate(diagnosis = 1*(diagnosis == "M"))
+
+breastcancer$diagnosis <- as.factor(breastcancer$diagnosis)
+
+
+str(breastcancer)
+
+medias <- breastcancer[,c(2,3:12)]
+```
+
+```{r}
+# Gráficos de predictoras y variable
+datacomp = melt(medias, id.vars='diagnosis')
+ggplot(datacomp) +
+  geom_boxplot(aes(diagnosis,value, colour=variable)) + 
+  facet_wrap(~variable, scales ="free_y") +
+  labs(x = "", y = "diagnosis") 
+```
+Para intentar reducir la variabilidad se puede trabajar con los datos estandarizados "scale(variables)"   . Pero tambien se puede hacer un PCA, ya que tenemos un monton de variables que hablan del tamaño. 
+
+Random forest  = arbol de clasificación , parecido a un claster. Es elq mejor resultados da en este problema. 
+
+```{r}
+#PCA
+
+#Librerías necesarias para realizar este paso 
+library(FactoMineR)
+library(factoextra)
+
+#Análisis de componentes principales 
+BIN.pca <- PCA(X = breastcancer[,-2], scale.unit = TRUE, ncp = 32, graph = FALSE)
+
+#Representamos los sujetos en un PCA sin argumento  
+fviz_pca_ind(BIN.pca, col.ind = "#00AFBB")
+
+```
+Con las dos primeras dimensiones vemos que se puede recoger un capacidad explicativa del 60% aprox, lo cual es un buen porcentaje, por lo que vamos a probar a hacer un modelo con estas dos
+
+```{r}
+library(pls)
+set.seed(1)
+pcreg <- pcr(fidelida ~ ., data = breastcancer, scale = TRUE, validation = "CV")
+summary(pcreg)
+```
+
+
+

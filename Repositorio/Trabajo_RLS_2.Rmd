@@ -1,0 +1,433 @@
+---
+title: "Trabajo_RLS_2"
+author: "Nuria"
+date: "2023-06-27"
+output: html_document
+---
+
+::: {style="text-align: justify"}
+
+```{r librerias,echo=TRUE,error=FALSE,warning=FALSE,message=FALSE}
+# librerias estándar para tratamiento de datos
+library(tidyverse)
+library(tidymodels)
+library(stringr)
+library(forcats)
+library(lubridate)
+library(magrittr)
+library(broom)
+library(pubh)
+library(lmtest)
+library(MASS)
+library(kableExtra)
+library(mosaic)
+library(moonBook)
+library(sjlabelled)
+library(sjPlot)
+library(reshape2)
+library(olsrr)
+library(ggfortify)
+library(mgcv)
+library(modelr)
+library(alr4)
+library(gridExtra)
+library(factoextra)
+library(FactoMineR)
+```
+
+## Beijing
+
+Este conjunto de datos incluye datos horarios de contaminantes atmosféricos procedentes de 12 puntos de vigilancia de la calidad del aire controlados a escala nacional. Los datos proceden del Centro Municipal de Vigilancia Medioambiental de Pekín. Los datos meteorológicos de cada sitio de calidad del aire se corresponden con la estación meteorológica más cercana de la Administración Meteorológica de China. El periodo de tiempo va del 1 de marzo de 2013 al 28 de febrero de 2017. Los datos que faltan se indican como NA. Los datos completos se componen de 12 ficheros (uno por cada punto de vigilancia). Cada banco de datos contiene un conjunto de variables que registran los diferentes tipos de contaminantes:
+
+**Variables identificadoras de la localización de la toma de datos**
+
+1.  **No**: número de fila
+2.  **year**: año de los datos de esta fila
+3.  **month**: mes de los datos de esta fila
+4.  **day**: día de los datos de esta fila
+5.  **hour**: hora de los datos de esta fila
+
+**Variables del nivel de los diferentes contaminantes**
+
+6.  **PM2.5**: concentración de PM2.5 (ug/m\^3)
+7.  **PM10**: concentración de PM10 (ug/m\^3)
+8.  **SO2**: Concentración de SO2 (ug/m\^3)
+9.  **NO2**: Concentración de NO2 (ug/m\^3)
+10. **CO**: concentración de CO (ug/m\^3)
+11. **O3**: Concentración de O3 (ug/m\^3)
+
+**Variables ambientales**
+
+12. **TEMP**: temperatura (grados Celsius)
+13. **PRES**: presión (hPa)
+14. **DEWP**: temperatura del punto de rocío (grados Celsius)
+15. **RAIN**: precipitación (mm)
+16. **wd**: dirección del viento
+17. **WSPM**: velocidad del viento (m/s)
+
+**Localidad del registro**
+
+18. **station**: nombre del lugar de control de la calidad del aire
+
+Para facilitar el trabajo de análisis trabajrremos únicamente con tres de las 12 localidades. Cargamos la infromación de cada localidad por separado y las juntamos en una única base de datos.
+
+```{r}
+loc02<-read.csv("https://raw.githubusercontent.com/jmsocuellamos/DatosBIOTEC/master/CaseStudies/Beijing/PRSA_Data_Changping_20130301-20170228.csv",header=TRUE)
+loc03<-read.csv("https://raw.githubusercontent.com/jmsocuellamos/DatosBIOTEC/master/CaseStudies/Beijing/PRSA_Data_Dingling_20130301-20170228.csv",header=TRUE)
+loc11<-read.csv("https://raw.githubusercontent.com/jmsocuellamos/DatosBIOTEC/master/CaseStudies/Beijing/PRSA_Data_Wanliu_20130301-20170228.csv",header=TRUE)
+
+contaminacion <-rbind(loc02, loc03, loc11)
+```
+
+Eliminamos de la base de datos todos lo registros con algún valor perdido (missing) para alguna de las variables, para obtener un conjunto de datos más compacto. Centraremos nuestro análisis en el contaminante $O3$ por lo que elinaremos todas las variables que nos son necesarias para los análisis.
+
+```{r}
+# Eliminación de valores pérdidos
+contaminacion<-contaminacion[complete.cases(contaminacion),]
+
+# Selección de varaibles de interés
+variables <-c("month", "O3", "TEMP", "PRES", "DEWP", "RAIN", "WSPM", "station")
+contaminF <- contaminacion[,variables]
+```
+
+Para evitar problemas de escalas se recomienda transformar la variable $O3$ mediate el logartimo neperiano y utilizar dicha variable para las diferentes modelidaciones que vamos a abordar.
+
+Se plantean dos modelos diferentes: 
+
+1. interviene la variable `month` 
+
+2.  interviene la variable `station`. 
+
+Deseamos analizar de forma independiente si resulta más relevante el mes de la toma de datos que la localidad donde se toman para estudiar el nivel de $O3$.
+
+Modelo para `month`
+
+1.  Convierte la variable `month` y realiza un análisis gráfico preliminar donde se visualize el comportamiento del contaminate con respecto a las variables climáticas teniendo en cuenta el mes de la toma de datos. Extrae las conclusiones pertinentes a la vista de dicha información.
+
+```{r}
+#Convertir O3 a logaritmo 
+contamin_ln <- contaminF %>% mutate(lO3 = log(O3))
+
+#Convertimos la variable month en 3 grupos 
+contamin_ln$primavera <- contamin_ln$month [,c (1)]
+contamin_ln$month <- as.factor(contamin_ln$month)
+
+#Como tenemos 12, vamos a juntarlos en 
+levels(contamin_ln$month) <- c("Enero", "Febrero", "Marzo", "Abril", 
+                           "Mayo", "Junio", "Julio", "Agosto",
+                           "Septiembre","Octubre","Noviembre", "Diciembre")
+
+
+#Seleccionamos las variables en un nuevo dataframe 
+contamin_lnm <- contamin_ln[,c(1, 3:7,9)]
+```
+Tenemos month que es factor, O3 que es numercico y el resto que los numericos también. Asiq tenemos que representar dos numéricas con una factorial.
+
+
+Análisis preliminar 
+
+```{r}
+#ggplot(contaminF, aes(x = TEMP, y = O3, color = month )) + 
+  #geom_point() + 
+  #labs(x = "TEMP", y = log(O3))
+
+# Creamos el gráfico
+ggplot(contamin_ln, aes(x = TEMP, y = lO3))  +
+  geom_point() + 
+  xlab("TEMP") +
+  ylab("O3)") +
+  facet_grid(. ~ month) 
+# Creamos el gráfico
+ggplot(contamin_ln, aes(x = PRES, y = lO3))  +
+  geom_point() + 
+  xlab("PRES") +
+  ylab("O3)") +
+  facet_grid(. ~ month) 
+# Creamos el gráfico
+ggplot(contamin_ln, aes(x = DEWP, y = lO3))  +
+  geom_point() + 
+  xlab("DEWP") +
+  ylab("O3)") +
+  facet_grid(. ~ month) 
+# Creamos el gráfico
+ggplot(contamin_ln, aes(x = RAIN, y = lO3))  +
+  geom_point() + 
+  xlab("RAIN") +
+  ylab("O3)") +
+  facet_grid(. ~ month) 
+
+# Creamos el gráfico
+ggplot(contamin_ln, aes(x = WSPM, y = lO3))  +
+  geom_point() + 
+  xlab("WSPM") +
+  ylab("O3)") +
+  facet_grid(. ~ month)
+```
+
+
+```{r}
+#Otro tipo de representación 
+ggplot(contamin_ln,  aes(x = month,  y = lO3,  color = TEMP)) + geom_point()
+ggplot(contamin_ln,  aes(x = month,  y = lO3,  color = PRES)) + geom_point()
+ggplot(contamin_ln,  aes(x = month,  y = lO3,  color = DEWP)) + geom_point()
+ggplot(contamin_ln,  aes(x = month,  y = lO3,  color = RAIN)) + geom_point()
+ggplot(contamin_ln,  aes(x = month,  y = lO3,  color = WSPM)) + geom_point()
+```
+
+2.  Construye un modelo inicial teniendo en cuenta las variable climáticas y el mes de la toma de datos para explicar el comportamiento de $O3$. Interpreta los resultados obtenidos.
+
+```{r}
+# Modelo saturado
+modelo.beij <- lm(lO3 ~ month *(TEMP + RAIN + PRES + WSPM +  DEWP) , data = contamin_lnm)
+```
+
+3.  Seleciona el mejor modelo tomando como punto de partida el modelo del punto anterior y extrae las conclusiones pertinentes.
+
+```{r}
+# Selección del modelo
+ols_step_backward_p(modelo.beij, prem = 0.05)
+```
+
+
+```{r}
+tab_model(modelo.beij,
+show.r2 = TRUE,
+show.p = TRUE)
+```
+
+No nos quita ninguna variable, por lo que utilizamos el modelo saturado .
+
+4.  Realiza el diagnóstico del modelo anterior y si fuera necesario propón un modelo alternativo.
+
+##Diagnóstico 
+```{r}
+# Valores de diagnóstico
+diagnostico <- fortify(modelo.beij)
+
+# Gráfico TEMP
+ggplot(diagnostico,aes(x = TEMP, y = .stdresid, colour = month)) + 
+   geom_point() +
+   geom_hline(yintercept = 0, col = "red") +
+   facet_wrap(. ~ month) + 
+  theme_bw()
+
+# Gráfico RAIN
+ggplot(diagnostico,aes(x = RAIN, y = .stdresid, colour = month)) + 
+   geom_point() +
+   geom_hline(yintercept = 0, col = "red") +
+   facet_wrap(. ~ month) + 
+  theme_bw()
+
+# Gráfico PRES
+ggplot(diagnostico,aes(x = PRES, y = .stdresid, colour = month)) + 
+   geom_point() +
+   geom_hline(yintercept = 0, col = "red") +
+   facet_wrap(. ~ month) + 
+  theme_bw()
+
+# Gráfico
+ggplot(diagnostico,aes(x = DEWP, y = .stdresid, colour = month)) + 
+   geom_point() +
+   geom_hline(yintercept = 0, col = "red") +
+   facet_wrap(. ~ month) + 
+  theme_bw()
+
+# Gráfico
+ggplot(diagnostico,aes(x = WSPM, y = .stdresid, colour = month)) + 
+   geom_point() +
+   geom_hline(yintercept = 0, col = "red") +
+   facet_wrap(. ~ month) + 
+  theme_bw()
+
+```
+
+
+```{r}
+leveneTe
+st(.stdresid ~ month, data = diagnostico)
+contamin_lnm
+```
+
+
+```{r}
+# Análisis de influencia
+ols_plot_cooksd_chart(modelo.beij)
+```
+```{r}
+MASS::boxcox(modelo.beij)
+```
+
+
+
+```{r}
+# Análisis de multicolinealidad
+ols_coll_diag(modelo.beij)
+```
+En el diagnóstico vemos que este modelo tiene mucha multicolinealidad, por lo que vamos a realizar una reducción de la dimensionalidad mediante un PCA. 
+
+```{r}
+#Nuevo modelo quitando los problemas de multicolinealidad 
+modelo.beij2 <- lm(lO3 ~ month *(TEMP + RAIN) + PRES +  WSPM + DEWP , data = contamin_lnm)
+
+#multicolinealidad
+ols_coll_diag(modelo.beij2)
+
+glance(modelo.beij2)
+```
+
+```{r}
+# Realizar el PCA en tus datos originales
+pca.beij <- PCA(X = (contamin_lnm [, c(-1,-7)]), scale.unit = TRUE, ncp = 5 , graph = TRUE)
+
+# Obtener las componentes ficticias para tus datos originales
+componentes_ficticias.beij <- pca.beij$ind$coord
+
+contamin_lnm$Dim1 <- componentes_ficticias.beij[, "Dim.1"]
+contamin_lnm$Dim2 <- componentes_ficticias.beij[, "Dim.2"]
+
+# Ajustar un modelo estadístico utilizando las componentes ficticias
+modelo.pca.beij <- lm(lO3 ~ month * (Dim1 + Dim2), data = contamin_lnm)
+
+# Parámetros estimados
+tab_model(modelo.pca.beij,
+show.r2 = TRUE,
+show.p = TRUE)
+
+glance(modelo.pca.beij)
+
+```
+
+
+
+```{r}
+# Selección del modelo
+ols_step_backward_p(modelo.pca.beij, prem = 0.05)
+```
+
+##Diagnostico 
+
+```{r}
+
+# Análisis de multicolinealidad
+ols_coll_diag(modelo.pca.beij)
+
+# Valores de diagnóstico
+diagnostico2 <- fortify(modelo.pca.beij)
+
+# Gráfico
+ggplot(diagnostico2,aes(x = Dim2, y = .stdresid, colour = month)) + 
+   geom_point() +
+   geom_hline(yintercept = 0, col = "red") +
+   facet_wrap(. ~ month)
+
+leveneTest(.stdresid ~ month, data = diagnostico2)
+
+# Análisis de influencia
+ols_plot_cooksd_chart(modelo.pca.beij)
+
+plot_model(modelo.pca.beij, "pred", terms = c("Dim2", "month"),
+           title ="Predicción de la media del tiempo de vida")
+
+plot_model(modelo.beij, "pred", terms = c("TEMP", "month"),
+           title ="Predicción de la media del tiempo de vida")
+```
+
+5.  Establece el rango de valores de las predictoras donde el nivel de $O3$ es más bajo teniendo en cuenta si dichos valores vienen determinados por el mes de la toma de datos.
+
+
+
+
+
+Modelo para `station`
+
+1.  Convierte la variable `station` y realiza un análisis gráfico preliminar donde se visualize el comportamiento del contaminate con respecto a las variables climáticas teniendo en cuenta la localidad de la toma de datos. Extrae las conclusiones pertinentes a la vista de dicha información.
+
+```{r}
+#Convertimos la variable station
+contamin_ln$station <- as.factor(contamin_ln$station)
+
+#Seleccionamos las variables en un nuevo dataframe 
+contamin_lns <- contamin_ln[,c(3:9)]
+
+##Análisis preliminar 
+# Creamos el gráfico
+ggplot(contamin_lns, aes(x = TEMP, y = lO3))  +
+  geom_point() + 
+  xlab("TEMP") +
+  ylab("O3)") +
+  facet_grid(. ~ station) 
+
+# Creamos el gráfico
+ggplot(contamin_lns, aes(x = PRES, y = lO3))  +
+  geom_point() + 
+  xlab("PRES") +
+  ylab("O3)") +
+  facet_grid(. ~ station) 
+# Creamos el gráfico
+ggplot(contamin_lns, aes(x = DEWP, y = lO3))  +
+  geom_point() + 
+  xlab("DEWP") +
+  ylab("O3)") +
+  facet_grid(. ~ station) 
+# Creamos el gráfico
+ggplot(contamin_lns, aes(x = RAIN, y = lO3))  +
+  geom_point() + 
+  xlab("RAIN") +
+  ylab("O3)") +
+  facet_grid(. ~ station) 
+
+# Creamos el gráfico
+ggplot(contamin_lns, aes(x = WSPM, y = lO3))  +
+  geom_point() + 
+  xlab("WSPM") +
+  ylab("O3)") +
+  facet_grid(. ~ station)
+```
+Vemos que la respuesta no parece tener dependencia de las estaciones 
+
+2.  Construye un modelo inicial teniendo en cuenta las variable climáticas y la localidad de la toma de datos para explicar el comportamiento de $O3$. Interpreta los resultados obtenidos.
+
+```{r}
+# Modelo saturado
+fit.beij.station <-  lm(lO3 ~ station *(TEMP + RAIN + PRES + WSPM +  DEWP) , data = contamin_lns)
+
+# Selección del modelo
+ols_step_backward_p(fit.beij.station, prem = 0.05)
+
+```
+3.  Seleciona el mejor modelo tomando como punto de partida el modelo del punto anterior y extrae las conclusiones pertinentes.
+
+```{r}
+# Realizar el PCA en tus datos originales
+pca.beij <- PCA(X = (contamin_lns [, c(-6,-7)]), scale.unit = TRUE, ncp = 5 , graph = TRUE)
+
+# Obtener las componentes ficticias para tus datos originales
+componentes_ficticias.beijs <- pca.beij$ind$coord
+
+contamin_lns$Dim1 <- componentes_ficticias.beijs[, "Dim.1"]
+contamin_lns$Dim2 <- componentes_ficticias.beijs[, "Dim.2"]
+
+# Ajustar un modelo estadístico utilizando las componentes ficticias
+modelo.pca.beijs <- lm(lO3 ~ station * (Dim1 + Dim2), data = contamin_lns)
+
+# Análisis de multicolinealidad
+ols_coll_diag(modelo.pca.beijs)
+
+# Parámetros estimados
+tab_model(modelo.pca.beijs,
+show.r2 = TRUE,
+show.p = TRUE)
+
+plot_model(modelo.pca.beijs, "pred", terms = c("Dim1", "station"),
+           title ="Predicción de la media del tiempo de vida")
+```
+
+4.  Realiza el diagnóstico del modelo anterior y si fuera necesario propón un modelo alternativo.
+
+
+
+5.  Establece el rango de valores de las predictoras donde el nivel de $O3$ es más bajo teniendo en cuenta si dichos valores vienen determinados por la localidad de la toma de datos.
+
+
+¿Cómo podemos comparar los resultados de ambos modelos? ¿Consideras más relevante el mes o la localidad? Justifica todas tus respuestas. Si al modelo con el mes de la toma de datos le añadimos de forma aditiva la localidad de la toma de datos, ¿mejora o empeora el modelo? Justifica tus respuestas
+:::

@@ -1,0 +1,670 @@
+---
+title: 'Trabajo 4: Modelo GLM Binomial'
+author: "Nombre"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r librerias, echo=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(stringr)
+library(forcats)
+library(lubridate)
+library(magrittr)
+library(broom)
+library(pubh)
+library(datasets)
+library(lmtest)
+library(MASS)
+library(kableExtra)
+library(mosaic)
+library(latex2exp)
+library(moonBook)
+library(sjlabelled)
+library(sjPlot)
+library(reshape2)
+library(olsrr)
+library(ggfortify)
+library(mgcv)
+library(modelr)
+library(alr4)
+#library(equatiomatic) 
+library(survival)
+library(survminer)
+library(FactoMineR)
+library(factoextra)
+theme_set(theme_sjplot2())
+
+```
+
+::: {style="text-align: justify"}
+# Estudio de caso
+
+El conjunto de datos de Wisconsin sobre el cáncer de mama contine información sobre el proceso de diagnóstico de dicha enfermedad a partir de un análisis de imágenes 3D de las mamografías correspondientes a 569 mujeres donde se registran los diferentes núcleos de posibles células cancerosas. El objetivo es valorar la clasificación realizada como tumor benigno o maligno en función de las características obtenidas del análisis de imágenes.
+
+Para cada imagen se registran la media (mean), desviación típica (se), peor medición (worst) como la media de los tres valores más grandes de los diferentes núcleos observados de las siguientes características:
+
+-   radio (media de las distancias del centro a los puntos del perímetro) (radius)
+-   textura (desviación estándar de los valores de la escala de grises) (texture)
+-   perímetro (perimeter)
+-   área (area)
+-   suavidad (variación local de las longitudes de los radios) (smoothness)
+-   compacidad (perímetro\^2 / área - 1,0) (compactness)
+-   concavidad (gravedad de las partes cóncavas del contorno) (concavity)
+-   puntos cóncavos (número de porciones cóncavas del contorno) (concave points)
+-   simetría (symmetry)
+-   dimensión fractal ("aproximación de la línea de costa" - 1) (fractal dimension)
+
+lo que nos porporciona un total de 30 mediciones para sujeto de estudio. También tenemos el código de identificación del susjeto (ID), y la clasificación del tumor como maligno o benigno (Diagnosis).
+
+A continuación se muestra el código para la carga del banco de datos.
+:::
+
+```{r}
+breastcancer<-read_csv("https://raw.githubusercontent.com/jmsocuellamos/DatosBIOTEC/master/trabajos2122/brestcancer.csv")
+breastcancer <- breastcancer %>%
+ mutate_if(sapply(breastcancer,is.character),as.factor) %>%
+ mutate(diagnosis = 1*(diagnosis == "M"))
+breastcancer$diagnosis <- as.factor(breastcancer$diagnosis)
+```
+
+::: {style="text-align: justify"}
+Para este banco de datos vamos a establecer diferentes modelos en función de las características recogidas:
+
+1.  Tomando las características asociadas con los valores medios del conjunto de células (atributos con \_mean) obtén el mejor modelo posible para clasificar de la forma más precisa posible el tumor como benigno o maligno.
+2.  Tomando las características asociadas con las desviaciones típicas de los valores observados para el conjunto de células (atributos con \_sd) obtén el mejor modelo posible para clasificar de la forma más precisa posible el tumor como benigno o maligno.
+3.  Tomando las características asociadas con los peores valores del conjunto de células (atributos con \_worst) obtén el mejor modelo posible para clasificar de la forma más precisa posible el tumor como benigno o maligno.
+4.  Con las características que confroman los modelos de los tres puntos anteriores construye un nuevo modelo que las englobe a todas ellas. Valora si este nuevo modelo es mejor que los anteriores
+:::
+
+## Modelo con las medias 
+
+```{r}
+#Creamos un dataframe 
+meanbreast <- breastcancer[,c(2,3:12)]
+
+#representamos gráficamente. En este caso realizamos diagramas de caja para cada variable predictora. 
+datacomp = melt(meanbreast, id.vars='diagnosis')
+ggplot(datacomp) +
+  geom_boxplot(aes(diagnosis, value, colour=variable)) + 
+  facet_wrap(~variable, scales ="free_y") +
+  labs(x = "", y = "Tumor maligno")
+
+```
+
+```{r}
+#Probamos a estandarizar, aprovechamos y estandarizamos todas las variables de la base de datos
+breastcancer[,3:ncol(breastcancer)] <- scale (breastcancer[,3:ncol(breastcancer)])
+#Seleccionamos las columnas que nos interesan 
+meanbreast_s<-breastcancer[,c(2,3:12)] 
+```
+
+```{r}
+#Volvemos a representar gráficamente con las variables estandarizadas. 
+datacomp = melt(meanbreast_S, id.vars='diagnosis')
+ggplot(datacomp) +
+  geom_boxplot(aes(diagnosis, value, colour=variable)) + 
+  facet_wrap(~variable, scales ="free_y") +
+  labs(x = "", y = "Tumor maligno") + theme_bw()
+```
+```{r, warning=FALSE}
+#Estimación del modelo
+fit.meanbreast_s <- glm(diagnosis  ~ .,
+          family = binomial(link = logit),
+          data = meanbreast_s)
+
+# Resumen del predictor lineal
+tab_model(fit.meanbreast_s, 
+          transform = NULL , 
+          string.est = "Estimate",
+          show.r2 = FALSE)
+
+# Gráfico
+plot_model(fit.meanbreast, 
+           transform = NULL, 
+           axis.title = c("Estimate",""),
+           show.values = TRUE
+           )
+```
+
+
+```{r}
+#Queremos saber la relación que hay entre las variables de radio y area ya que estas deberían ser directamente proporcionales por lo que afectar igual al diagnosis
+ggplot(meanbreast_S, aes(x= area_mean, y = radius_mean, fill = diagnosis, color = diagnosis)) +
+       geom_point()
+```
+area con radio y perimetro tienen tendencia clara, por lo que aquí observamos problemas de multicolinealidad. Por lo que voy a probar a hacer un PCA 
+
+
+```{r,warning=FALSE}
+# Resumen del predictor lineal
+tab_model(fit.meanbreast_S, 
+          show.r2 = FALSE)
+```
+
+##Bondad de ajuste
+
+```{r}
+# P-valor del contraste
+1-pchisq(fit.meanbreast_S$deviance,fit.meanbreast_S$df.residual)
+```
+
+##Realizamos selección del modelo 
+```{r,warning=FALSE}
+stats::step(fit.meanbreast_s)
+```
+El estudio de selección del modelo nos dice que hay q hay que quitar varias variables ,asiq vamos a ello. Según el step, la simetria es significativa, y, en el porcentaje de clasificación correcta tiene el  valor es mayor sin la simetria "94.55>94.38". Igualmente,voy a guardarlos los dos y comparalos el modelos inicial y con estos dos 
+
+```{r, warning=FALSE}
+#Hacemos un dataframe con las variables del nuevo modelo (con simetría)
+meanbreast2 <- meanbreast_S [,c(1:3,5,6,9,10)]
+
+#Estimación del modelo
+fit.meanbreast2 <- glm(formula = diagnosis ~ radius_mean + texture_mean + area_mean + 
+    smoothness_mean + concave_points_mean + symmetry_mean, family = binomial(link = logit), 
+    data = meanbreast_s)
+
+# Resumen del predictor lineal
+tab_model(fit.meanbreast2, 
+          transform = NULL , 
+          string.est = "Estimate",
+          show.r2 = FALSE)
+
+# Gráfico
+plot_model(fit.meanbreast2, 
+           transform = NULL, 
+           axis.title = c("Estimate",""),
+           show.values = TRUE
+           )
+```
+
+```{r}
+# Obtención de predicción de la respuesta
+prediccion <- predict(fit.meanbreast2, type = "response")
+# Clasificacmos a cada sujeto como éxito o fracaso
+clasificado <- 1*(prediccion>=0.5)
+tabla <- table(meanbreast2$diagnosis, clasificado)
+tabla
+```
+
+```{r}
+# Porcentaje de clasificación correcta
+round(100*sum(diag(tabla))/sum(tabla),2)
+```
+
+```{r, warning=FALSE}
+#Hacemos un dataframe con las variables del nuevo modelo (SIN simetría)
+meanbreast3 <- meanbreast_S [,c(1:3,5,6,9)]
+
+#Estimación del modelo
+fit.meanbreast3 <- glm(formula = diagnosis ~ radius_mean + texture_mean + area_mean + 
+    smoothness_mean + concave_points_mean, family = binomial(link = logit), 
+    data = meanbreast_s)
+
+
+# Resumen del predictor lineal
+tab_model(fit.meanbreast3, 
+          transform = NULL , 
+          string.est = "Estimate",
+          show.r2 = FALSE)
+
+# Gráfico
+plot_model(fit.meanbreast3, 
+           transform = NULL, 
+           axis.title = c("Estimate",""),
+           show.values = TRUE
+           )
+```
+
+```{r}
+# Obtención de predicción de la respuesta
+prediccion <- predict(fit.meanbreast3, type = "response")
+# Clasificacmos a cada sujeto como éxito o fracaso
+clasificado <- 1*(prediccion>=0.5)
+tabla2 <- table(meanbreast3$diagnosis, clasificado)
+tabla2
+```
+
+```{r}
+# Porcentaje de clasificación correcta
+round(100*sum(diag(tabla2))/sum(tabla2),2)
+```
+
+```{r, warning=FALSE}
+#Gráficos marginales
+plot_model(fit.meanbreast3,"pred")
+```
+
+```{r}
+#Comparamos utilizando el estadístico AIC
+AIC(fit.meanbreast3,fit.meanbreast2,fit.meanbreast_S)
+
+#Comparamos si la diferencia entre los dos modelos más simples es significativa 
+anova(fit.meanbreast3,fit.meanbreast2, test = "Chisq")
+```
+Como la diferencia no es significativa, nos quedamos con el más sencillo que es sin la simetria 
+
+Voy a probar a hacer un SUAVIZADO 
+```{r}
+#Realizamos un suavizado para el modelo más óptimo
+fit.meanbreast.gam <- gam(diagnosis ~ s(radius_mean, k=10 , m=2, bs ="ps") + s(texture_mean, k=10 , m=2, bs ="ps") + s(area_mean, k=10 , m=2, bs ="ps") + s(smoothness_mean, k=10 , m=2, bs ="ps") + s(concave_points_mean, k=10 , m=2, bs ="ps"), family = binomial(link = logit), meanbreast_s)
+
+#Comparamos AIC 
+AIC(fit.meanbreast.gam, fit.meanbreast3,fit.meanbreast2,fit.meanbreast_S)
+
+#Comparamos si la diferencia entre los dos modelos más simples es significativa 
+anova(fit.meanbreast.gam, fit.meanbreast3,fit.meanbreast2, test = "Chisq")
+```
+```{r}
+#Gráficos marginales
+plot_model(fit.meanbreast.gam,"pred")
+```
+
+```{r}
+# Obtención de predicción de la respuesta
+prediccion <- predict(fit.meanbreast.gam, type = "response")
+
+# Clasificacmos a cada sujeto como éxito o fracaso
+clasificado <- 1*(prediccion>=0.5)
+tablagam <- table(meanbreast_s$diagnosis, clasificado)
+tablagam
+
+# Porcentaje de clasificación correcta
+round(100*sum(diag(tablagam))/sum(tablagam),2)
+
+summary(fit.meanbreast.gam)
+```
+
+```{r}
+# Gráficos marginales
+plot_model(fit.meanbreast.gam, "pred")
+```
+
+como comentamos anteriormente, usamos suavizados sobre el mejor modelo anterior (fit.meanbreast3) para reducir la desviación en las predictoras, y a simple vista podemos comprobar que en este caso se ajustan bastante mejor, se obtiene una capacidad explicativa (Deviance explained) del 84,2% y, además, se obtienen mejores valores de predicción (96,13%) y AIC (137,33) con respecto al fit.meanbreast3, con el que hay diferencias en la capacidad explicativa según el test Chisq.
+
+```{r}
+gam.check(fit.meanbreast.gam)
+```
+al ser un modelo binomial, este tipo de diagnósticos, al igual que en diagnósticos anteriores, no nos aportan mucha información.Brevemente, parece que no hay problema con la hipótesis de normalidad ya que se desvían poco de la línea recta. En el histograma se aprecia cómo los residuos presentan una distribución normal. En cuanto al test de suavizado, vemos que para las variables predictora no sería necesario un aumento del número de nodos, ya que nos sale un p.valor no significativo.
+
+```{r}
+# Resumen del predictor lineal
+tab_model(fit.meanbreast.gam, 
+          transform = NULL , 
+          string.est = "Estimate",
+          show.r2 = TRUE)
+```
+
+Por lo tanto, el *Modelo para \_mean* sería:
+
+diagnosis ~ - f(radius_mean) + f(texture_mean) + f(area_mean) + f(smoothness_mean) +              f(concave_points_mean) + 0.79
+
+R^2=0.861
+
+
+
+## 2 desviaciones típicas
+
+```{r}
+#Creamos un dataframe 
+sdbreast <- breastcancer[,c(2,13:22)]
+```
+
+```{r}
+#Representamos gráficamente con los valores ya estandarizados. En este caso realizamos diagramas de caja para cada variable predictora. 
+datacomp = melt(sdbreast, id.vars='diagnosis')
+
+ggplot(datacomp) + geom_boxplot(aes(diagnosis, value, colour=variable)) + 
+  facet_wrap(~variable, scales ="free_y") +
+  labs(x = "", y = "Tumor maligno")
+```
+
+```{r, warning=FALSE}
+#Estimación del modelo
+fit.sdbreast <- glm(diagnosis  ~ .,
+          family = binomial(link = logit),
+          data = sdbreast)
+
+# Resumen del predictor lineal
+tab_model(fit.sdbreast, 
+          transform = NULL , 
+          string.est = "Estimate",
+          show.r2 = FALSE)
+
+# Gráfico
+plot_model(fit.sdbreast, 
+           transform = NULL, 
+           axis.title = c("Estimate",""),
+           show.values = TRUE
+           )
+```
+```{r}
+# Obtención de predicción de la respuesta
+prediccion <- predict(fit.sdbreast, type = "response")
+# Clasificacmos a cada sujeto como éxito o fracaso
+clasificado <- 1*(prediccion>=0.5)
+tablasd <- table(sdbreast$diagnosis, clasificado)
+tablasd
+
+# Porcentaje de clasificación correcta
+round(100*sum(diag(tablasd))/sum(tablasd),2)
+```
+
+```{r}
+#Queremos saber la relación que hay entre las variables de radio y area ya que estas deberían ser directamente proporcionales por lo que afectar igual al diagnosis
+ggplot(sdbreast, aes(x= area_se , y = radius_se, fill = diagnosis, color = diagnosis)) +
+       geom_point()
+```
+area con radio y perimetro es exponencial . Se ven dos puntos un poco randoms, yo igul los eliminaría para ver que ocurre. 
+
+```{r}
+#Pruebo a eliminar esos dos numeros 
+sdbreast_sindosdatos <-  subset(sdbreast,sdbreast$area_se <8)
+                                    
+#Queremos saber la relación que hay entre las variables de radio y area ya que estas deberían ser directamente proporcionales por lo que afectar igual al diagnosis
+ggplot(sdbreast_sindosdatos, aes(x= area_se , y = radius_se, fill = diagnosis, color = diagnosis)) +
+       geom_point()
+
+#Queremos saber la relación que hay entre las variables de radio y perimetro 
+ggplot(sdbreast_sindosdatos, aes(x= area_se , y = perimeter_se, fill = diagnosis, color = diagnosis)) +
+       geom_point()
+
+#Queremos saber la relación que hay entre las variables de area  y perimetro 
+ggplot(sdbreast_sindosdatos, aes(x= area_se , y = perimeter_se, fill = diagnosis, color = diagnosis)) +
+       geom_point()
+
+#volvemos a representar gráficamente sin esos dos puntos 
+datacomp = melt(sdbreast_sindosdatos, id.vars='diagnosis')
+ggplot(datacomp) +
+  geom_boxplot(aes(diagnosis, value, colour=variable)) + 
+  facet_wrap(~variable, scales ="free_y") +
+  labs(x = "", y = "Tumor maligno") + theme_bw()
+```
+
+```{r, warning=FALSE}
+#Estimación del modelo
+fit.sdbreast_sindosdatos <- glm(diagnosis  ~ .,
+          family = binomial(link = logit),
+          data = sdbreast_sindosdatos)
+
+# Resumen del predictor lineal
+tab_model(fit.sdbreast_sindosdatos, 
+          transform = NULL , 
+          string.est = "Estimate",
+          show.r2 = FALSE)
+
+# Gráfico
+plot_model(fit.sdbreast_sindosdatos, 
+           transform = NULL, 
+           axis.title = c("Estimate",""),
+           show.values = TRUE
+           )
+```
+
+
+```{r,warning=FALSE}
+# Resumen del predictor lineal sin los dos datos 
+tab_model(fit.sdbreast_sindosdatos, 
+          show.r2 = FALSE)
+
+# Resumen del predictor lineal con todos los datos
+tab_model(fit.sdbreast, 
+          show.r2 = FALSE)
+```
+Solo me varía el area asiq hay algo q no está bien, igualmente se ven casi iguales asiq sudo. Me quedo con el de todos los datos
+
+
+##Bondad de ajuste
+
+```{r}
+# P-valor del contraste
+1-pchisq(fit.sdbreast$deviance,fit.sdbreast$df.residual)
+```
+
+#Realizamos selección del modelo 
+```{r,warning=FALSE}
+stats::step(fit.sdbreast)
+```
+```{r, warning=FALSE}
+#Hacemos un dataframe con las variables del nuevo modelo
+sdbreast2 <- sdbreast [,c(1,2,5,7,11)]
+
+#Estimación del modelo
+fit.sdbreast2 <- glm(formula = diagnosis ~ radius_se + area_se + compactness_se + 
+    fractal_dimension_se, family = binomial(link = logit), data = sdbreast2)
+
+# Resumen del predictor lineal
+tab_model(fit.sdbreast2, 
+          transform = NULL , 
+          string.est = "Estimate",
+          show.r2 = FALSE)
+
+# Gráfico
+plot_model(fit.sdbreast2, 
+           transform = NULL, 
+           axis.title = c("Estimate",""),
+           show.values = TRUE
+           )
+```
+
+```{r}
+# Obtención de predicción de la respuesta para el nuevo modelo
+prediccion <- predict(fit.sdbreast2, type = "response")
+# Clasificacmos a cada sujeto como éxito o fracaso
+clasificado <- 1*(prediccion>=0.5)
+tablasd2 <- table(sdbreast2$diagnosis, clasificado)
+tablasd2
+```
+
+```{r}
+# Porcentaje de clasificación correcta
+round(100*sum(diag(tablasd2))/sum(tablasd2),2)
+```
+Según el AIC deberíamos quedarnos con el modelo con el radio, el area el compactness y la dimensión fractal. con un porcentaje de clasificación correcta del 89,81.  
+
+```{r}
+sdbreastcancer <- glance(fit.sdbreast)
+sdbreastcancer2 <- glance(fit.sdbreast2)
+kable(rbind(sdbreastcancer, sdbreastcancer2), digits = 2)
+
+anova(fit.sdbreast2, fit.sdbreast, test = "Chisq")
+```
+
+No hay diferencias en la capacidad explicativa de ambos modelos, y además obtienen un porcentaje de predicción correcta muy similar (89.98% y 89.81%). Sin embargo, fit.sdbreast2 tiene menor valor de AIC y BIC, y es el más sencillo, por lo que en principio nos quedaríamos con este.
+
+fit.sdbreast2: diagnosis ~ -7.97*radius_se + 18.38*area_se + 1.33*compactness_se -                              0.94*fractal_dimension_se + 1.65
+
+```{r}
+# Gráficos marginales
+plot_model(fit.sdbreast2, "pred")
+```
+pese a que el radio y el área se ajustan bastante bien, sería interesante aplicar función de suavizado en las otras dos predictoras.
+
+```{r}
+#construimos el modelo suavizado sobre fit.sdbreast2
+fit.sdbreast2.gam <- gam(diagnosis ~ s(radius_se, k=10 , m=2, bs ="ps") + s(area_se, k=10 , m=2, bs ="ps") + s(compactness_se, k=10 , m=2, bs ="ps") + s(fractal_dimension_se, k=10 , m=2, bs ="ps"), family = binomial(link = logit), breastcancer)
+
+#construimos el modelo suavizado únicamente en las predictoras compactness y fractal dimension
+fit.sdbreast2b.gam <- gam(diagnosis ~ radius_se + area_se + s(compactness_se, k=10 , m=2, bs ="ps") + s(fractal_dimension_se, k=10 , m=2, bs ="ps"), family = binomial(link = logit), breastcancer)
+
+AIC(fit.sdbreast2b.gam, fit.sdbreast2.gam)
+
+anova(fit.sdbreast2b.gam, fit.sdbreast2.gam, test = "Chisq")
+```
+dado que no hay diferencias en la capacidad explicativa entre ambos modelos, y el AIC es muy similar entre ambos, nos quedamos con el modelo más sencillo (fit.sdbreast2b.gam), en el que se aplica suavizado solo a dos variables.
+
+```{r}
+# Obtención de predicción de la respuesta
+prediccion <- predict(fit.sdbreast2b.gam, type = "response")
+# Clasificacmos a cada sujeto como éxito o fracaso
+clasificado <- 1*(prediccion>=0.5)
+tabla2bgamsd <- table(sdbreast$diagnosis, clasificado)
+tabla2bgamsd
+
+# Porcentaje de clasificación correcta
+round(100*sum(diag(tabla2bgamsd))/sum(tabla2bgamsd),2)
+
+summary(fit.sdbreast2b.gam)
+```
+
+Se obtiene un % de predicción correcta del 90.69%, lo cual no difiere mucho de los anteriores modelos.
+
+```{r}
+#Comparamos los modelos
+anova(fit.sdbreast2, fit.sdbreast2b.gam, test = "Chisq")
+AIC(fit.sdbreast2, fit.sdbreast2b.gam)
+```
+
+```{r}
+# Gráficos marginales
+plot_model(fit.sdbreast2b.gam, "pred")
+```
+
+## peores valores del conjunto de células
+
+```{r}
+#Creamos un dataframe 
+worstbreast <- breastcancer[,c(2,23:32)]
+
+#representamos gráficamente. En este caso realizamos diagramas de caja para cada variable predictora. 
+datacomp = melt(worstbreast, id.vars='diagnosis')
+ggplot(datacomp) +
+  geom_boxplot(aes(diagnosis, value, colour=variable)) + 
+  facet_wrap(~variable, scales ="free_y") +
+  labs(x = "", y = "Tumor maligno")
+
+```
+
+
+```{r, warning=FALSE}
+#Estimación del modelo
+fit.worstbreast <- glm(diagnosis  ~ .,
+          family = binomial(link = logit),
+          data = worstbreast)
+
+# Resumen del predictor lineal
+tab_model(fit.worstbreast, 
+          transform = NULL , 
+          string.est = "Estimate",
+          show.r2 = FALSE)
+
+# Gráfico
+plot_model(fit.worstbreast, 
+           transform = NULL, 
+           axis.title = c("Estimate",""),
+           show.values = TRUE
+           )
+```
+
+
+```{r}
+# Obtención de predicción de la respuesta
+prediccion <- predict(fit.worstbreast, type = "response")
+# Clasificacmos a cada sujeto como éxito o fracaso
+clasificado <- 1*(prediccion>=0.5)
+tablaworst <- table(worstbreast$diagnosis, clasificado)
+tablaworst
+
+# Porcentaje de clasificación correcta
+round(100*sum(diag(tablaworst))/sum(tablaworst),2)
+```
+##Bondad de ajuste
+
+```{r}
+# P-valor del contraste
+1-pchisq(fit.worstbreast$deviance,fit.worstbreast$df.residual)
+```
+
+#Realizamos selección del modelo 
+```{r,warning=FALSE}
+stats::step(fit.worstbreast)
+```
+```{r}
+#Realizamos un nuevo modelo 
+fit.worstbreast2 <- glm(diagnosis ~ texture_worst + area_worst + smoothness_worst + 
+    compactness_worst + concavity_worst + concave_points_worst + 
+    symmetry_worst, family = binomial(link = logit), data = worstbreast)
+
+# Resumen del predictor lineal
+tab_model(fit.worstbreast2, 
+          transform = NULL , 
+          string.est = "Estimate",
+          show.r2 = FALSE)
+
+# Gráfico
+plot_model(fit.worstbreast2, 
+           transform = NULL, 
+           axis.title = c("Estimate",""),
+           show.values = TRUE
+           )
+
+```
+```{r}
+# Obtención de predicción de la respuesta
+prediccion <- predict(fit.worstbreast2, type = "response")
+# Clasificacmos a cada sujeto como éxito o fracaso
+clasificado <- 1*(prediccion>=0.5)
+tablaworst2 <- table(worstbreast$diagnosis, clasificado)
+tablaworst2
+
+# Porcentaje de clasificación correcta
+round(100*sum(diag(tablaworst2))/sum(tablaworst2),2)
+```
+El porcentaje de clasificado de los 2 modelos es el mismo "98,07", por lo que vamos a ver si hay significancia entre ellos. 
+
+```{r}
+#Comparamos utilizando el estadístico AIC
+AIC(fit.worstbreast,fit.worstbreast2)
+
+#Comparamos si la diferencia entre los dos modelos más simples es significativa 
+anova(fit.worstbreast,fit.worstbreast2, test = "Chisq")
+```
+
+El AIC del segundo modelo es menor, la capadiad explicativan no cambia y no hay significancia entre ellos, asíq nos quedamos con el más sencillo que es el segundo. 
+
+```{r}
+# Gráficos marginales primer modelo 
+plot_model(fit.worstbreast, "pred")
+
+# Gráficos marginales segundo modelo 
+plot_model(fit.worstbreast2, "pred")
+
+```
+El segundo modelo se ajusta muchisimo mejor, pero por probar vamos a hacer un suavizado 
+
+```{r}
+#construimos el modelo suavizado para todas las variables sobre fit.worstbreast2
+fit.worstbread.gam <- gam(diagnosis ~ s(texture_worst, k=10 , m=2, bs ="ps") + s(area_worst, k=10 , m=2, bs ="ps") + s(smoothness_worst, k=10 , m=2, bs ="ps") + s(compactness_worst, k=10 , m=2, bs ="ps") + s(concavity_worst, k=10 , m=2, bs ="ps") +  s(concave_points_worst, k=10) + s(symmetry_worst, k=10 , m=2, bs ="ps"), family = binomial(link = logit), worstbreast)
+   
+# Gráficos marginales segundo modelo 
+plot_model(fit.worstbread.gam, "pred")
+```
+
+```{r}
+# Obtención de predicción de la respuesta
+prediccion <- predict(fit.worstbread.gam, type = "response")
+# Clasificacmos a cada sujeto como éxito o fracaso
+clasificado <- 1*(prediccion>=0.5)
+tablaworst3 <- table(worstbreast$diagnosis, clasificado)
+tablaworst3
+
+# Porcentaje de clasificación correcta
+round(100*sum(diag(tablaworst3))/sum(tablaworst3),2)
+```
+
+```{r}
+#Comparamos utilizando el estadístico AIC
+AIC(fit.worstbreast,fit.worstbreast2,fit.worstbread.gam)
+
+#Comparamos si la diferencia entre los dos modelos más simples es significativa 
+anova(fit.worstbreast,fit.worstbreast2,fit.worstbread.gam, test = "Chisq")
+```
+Nos quedamos con el más sencillo, sin suavizados. 
+
+Ya tenemos los 3 modelos más óptimos para cada uno de los cosas. 
+
+
+
+

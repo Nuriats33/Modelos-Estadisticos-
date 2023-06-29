@@ -1,0 +1,224 @@
+---
+title: "Trabajo_GLM_Limpio"
+author: "Nuria"
+date: "2023-06-27"
+output: html_document
+---
+
+```{r librerias, echo=FALSE,warning=FALSE}
+library(tidyverse)
+library(tidymodels)
+library(stringr)
+library(forcats)
+library(lubridate)
+library(magrittr)
+library(broom)
+library(pubh)
+library(datasets)
+library(lmtest)
+library(MASS)
+library(kableExtra)
+library(mosaic)
+library(latex2exp)
+library(moonBook)
+library(sjlabelled)
+library(sjPlot)
+library(reshape2)
+library(olsrr)
+library(ggfortify)
+library(mgcv)
+library(modelr)
+library(alr4)
+#library(equatiomatic) 
+library(survival)
+library(survminer)
+library(FactoMineR)
+library(factoextra)
+theme_set(theme_sjplot2())
+
+```
+
+::: {style="text-align: justify"}
+# Estudio de caso
+
+El conjunto de datos de Wisconsin sobre el cáncer de mama contine información sobre el proceso de diagnóstico de dicha enfermedad a partir de un análisis de imágenes 3D de las mamografías correspondientes a 569 mujeres donde se registran los diferentes núcleos de posibles células cancerosas. El objetivo es valorar la clasificación realizada como tumor benigno o maligno en función de las características obtenidas del análisis de imágenes.
+
+Para cada imagen se registran la media (mean), desviación típica (se), peor medición (worst) como la media de los tres valores más grandes de los diferentes núcleos observados de las siguientes características:
+
+-   radio (media de las distancias del centro a los puntos del perímetro) (radius)
+-   textura (desviación estándar de los valores de la escala de grises) (texture)
+-   perímetro (perimeter)
+-   área (area)
+-   suavidad (variación local de las longitudes de los radios) (smoothness)
+-   compacidad (perímetro\^2 / área - 1,0) (compactness)
+-   concavidad (gravedad de las partes cóncavas del contorno) (concavity)
+-   puntos cóncavos (número de porciones cóncavas del contorno) (concave points)
+-   simetría (symmetry)
+-   dimensión fractal ("aproximación de la línea de costa" - 1) (fractal dimension)
+
+lo que nos porporciona un total de 30 mediciones para sujeto de estudio. También tenemos el código de identificación del susjeto (ID), y la clasificación del tumor como maligno o benigno (Diagnosis).
+
+A continuación se muestra el código para la carga del banco de datos.
+:::
+
+```{r,warning=FALSE}
+breastcancer<-read_csv("https://raw.githubusercontent.com/jmsocuellamos/DatosBIOTEC/master/trabajos2122/brestcancer.csv")
+breastcancer <- breastcancer %>%
+ mutate_if(sapply(breastcancer,is.character),as.factor) %>%
+ mutate(diagnosis = 1*(diagnosis == "M"))
+```
+
+## Modelo con las medias 
+
+```{r}
+#Hacmos la variavl diagnosis diagnosis factorial ya que estamos trabajando con un modelo bionomial
+breastcancer$diagnosis <- as.factor(breastcancer$diagnosis)
+#Creamos un dataframe 
+
+meanbreast <- breastcancer[,c(2,3:12)]
+
+#Representamos gráficamente. En este caso realizamos diagramas de caja para cada variable predictora. 
+datacomp = melt(meanbreast, id.vars='diagnosis')
+ggplot(datacomp) +
+  geom_boxplot(aes(diagnosis, value, colour=variable)) + 
+  facet_wrap(~variable, scales ="free_y") +
+  labs(x = "", y = "Tumor maligno")
+
+```
+
+```{r}
+#Probamos a estandarizar, aprovechamos y estandarizamos todas las variables de la base de datos
+breastcancer[,3:ncol(breastcancer)] <- scale (breastcancer[,3:ncol(breastcancer)])
+
+#Seleccionamos las columnas que nos interesan 
+meanbreast<-breastcancer[,c(2,3:12)] 
+```
+
+```{r}
+#Volvemos a representar gráficamente con las variables estandarizadas. 
+datacomp = melt(meanbreast, id.vars='diagnosis')
+ggplot(datacomp) +
+  geom_boxplot(aes(diagnosis, value, colour=variable)) + 
+  facet_wrap(~variable, scales ="free_y") +
+  labs(x = "", y = "Tumor maligno") + theme_bw()
+```
+
+```{r, warning=FALSE}
+#Estimación del modelo
+fit.meanbreast <- glm(diagnosis  ~ .,
+          family = binomial(link = logit),
+          data = meanbreast)
+
+# Resumen del predictor lineal
+tab_model(fit.meanbreast, 
+          transform = NULL , 
+          string.est = "Estimate",
+          show.r2 = FALSE)
+
+# Gráfico
+plot_model(fit.meanbreast, 
+           transform = NULL, 
+           axis.title = c("Estimate",""),
+           show.values = TRUE
+           )
+```
+
+```{r}
+#Queremos saber la relación que hay entre las variables de radio y area ya que estas deberían ser directamente proporcionales por lo que afectar igual al diagnosis
+ggplot(meanbreast, aes(x= perimeter_mean, y = area_mean, color = diagnosis)) +
+       geom_point()
+```
+Área con radio y perimetro tienen tendencia clara, por lo que aquí observamos problemas de multicolinealidad. Por lo que voy a probar a hacer un PCA 
+Hay tendencia con -> area:radio, radio:perimetro, perimetro:area.
+
+```{r}
+# Realizar el PCA en tus datos originales
+pca.mean <- PCA(X = (meanbreast [, c(-1)]), scale.unit = TRUE, ncp = 10, graph = TRUE)
+
+# Obtener las componentes ficticias para tus datos originales
+componentes_ficticias <- pca.mean$ind$coord
+
+# Ajustar un modelo estadístico utilizando las componentes ficticias
+modelo.means <- glm(diagnosis ~ componentes_ficticias2[, "Dim.1"] + componentes_ficticias2[, "Dim.2"], family = binomial(link = logit), data = meanbreast)
+```
+
+```{r}
+plot_model(modelo.means, 
+           transform = NULL, 
+           axis.title = c("Estimate",""),
+           show.values = TRUE
+           )
+```
+
+```{r}
+#Volvemos a representar gráficamente pero con los componentes principales
+datacomp = melt(meanbreast, id.vars='diagnosis')
+
+ggplot(datacomp) +
+  geom_boxplot(aes(diagnosis, value, colour=variable)) + 
+  facet_wrap(~variable, scales ="free_y") +
+  labs(x = "", y = "Tumor maligno") + theme_bw()
+```
+
+
+Vemos la contribución de las variables originales para las dos primeras componentes 
+```{r}
+# contribuciones variables en el componente 1 
+fviz_contrib(pca.mean, choice="var", axes = 1)
+
+# contribuciones variables en el componente 2 
+fviz_contrib(pca.mean, choice="var", axes = 2)
+
+```
+
+
+```{r}
+# Resumen del predictor lineal
+tab_model(modelo.means, 
+          transform = NULL , 
+          string.est = "Estimate",
+          show.r2 = FALSE)
+
+# Gráfico
+plot_model(modelo.means, 
+           transform = NULL, 
+           axis.title = c("Estimate",""),
+           show.values = TRUE
+           )
+```
+
+Mi duda está en que tengo que hacer ahora con esto, como hago el diagnóstico del modelo con esto?  Sí
+
+```{r}
+#construimos el modelo suavizado para todas las variables sobre fit.worstbreast2
+modelo.means.gam <- gam(diagnosis ~ s(componentes_ficticias2[, "Dim.1"], k=10 , m=2, bs ="ps") + s(componentes_ficticias2[, "Dim.2"], k=10 , m=2, bs ="ps"), family = binomial(link = logit), worstbreast)
+                        
+                        
+#Anova 
+AIC(modelo.means.gam,modelo.means)
+anova(modelo.means.gam,modelo.means,test = "Chisq")
+```
+
+
+
+
+```{r}
+# Obtención de predicción de la respuesta
+#prediccion <- predict(modelo.means, type = "response")
+
+# Clasificacmos a cada sujeto como éxito o fracaso
+#clasificado <- 1*(prediccion>=0.5)
+#tabla.mean <- table(meanbreast$diagnosis, clasificado)
+#tabla.mean
+```
+
+```{r}
+# Porcentaje de clasificación correcta
+round(100*sum(diag(tabla.mean))/sum(tabla2),2)
+```
+
+```{r}
+#Comparamos utilizando el estadístico AIC
+#AIC(fit.meanbreast3,fit.meanbreast2,fit.meanbreast_S, modelo.means)
+```
+
